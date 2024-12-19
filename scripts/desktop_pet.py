@@ -2,9 +2,10 @@ import sys
 import os
 import random
 import glob
+import math
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QSystemTrayIcon, QMenu
 from PyQt5.QtCore import Qt, QTimer, QPoint
-from PyQt5.QtGui import QPixmap, QImage, QIcon
+from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform
 
 class OwlPet(QMainWindow):
     def __init__(self):
@@ -15,6 +16,14 @@ class OwlPet(QMainWindow):
         self.frame_index = 0
         self.dragging = False
         self.offset = QPoint()
+        self.facing_right = True
+        self.last_pos = None
+        
+        # Flying movement variables
+        self.flying_start = None
+        self.flying_end = None
+        self.flying_progress = 0
+        self.flying_control_points = []
         
         # Set initial size
         self.setMinimumSize(100, 100)
@@ -22,7 +31,7 @@ class OwlPet(QMainWindow):
         # Animation timer
         self.animation_timer = QTimer(self)
         self.animation_timer.timeout.connect(self.updateAnimation)
-        self.animation_timer.start(100)  # Update every 100ms
+        self.animation_timer.start(50)  # Update every 50ms for smoother animation
         
         # State change timer
         self.state_timer = QTimer(self)
@@ -56,8 +65,10 @@ class OwlPet(QMainWindow):
         self.setCentralWidget(self.sprite_label)
         
         # Set initial position
-        desktop = QApplication.desktop().screenGeometry()
-        self.move(desktop.width() - 200, desktop.height() - 200)
+        self.desktop = QApplication.desktop().screenGeometry()
+        initial_pos = QPoint(self.desktop.width() - 200, self.desktop.height() - 200)
+        self.move(initial_pos)
+        self.last_pos = initial_pos
         self.show()
 
     def createSystemTray(self):
@@ -93,12 +104,93 @@ class OwlPet(QMainWindow):
                 if frames:  # Only add if there are frames
                     self.animations[anim_dir] = [QPixmap(frame).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation) for frame in frames]
 
+    def generate_bezier_points(self):
+        # Generate a new random flight path using bezier curves
+        start = self.pos()
+        
+        # Generate random end point on screen
+        end_x = random.randint(0, self.desktop.width() - self.width())
+        end_y = random.randint(0, self.desktop.height() - self.height())
+        end = QPoint(end_x, end_y)
+        
+        # Generate two control points for curved path
+        ctrl1_x = random.randint(min(start.x(), end.x()), max(start.x(), end.x()))
+        ctrl1_y = random.randint(0, self.desktop.height())
+        ctrl2_x = random.randint(min(start.x(), end.x()), max(start.x(), end.x()))
+        ctrl2_y = random.randint(0, self.desktop.height())
+        
+        return start, QPoint(ctrl1_x, ctrl1_y), QPoint(ctrl2_x, ctrl2_y), end
+
+    def bezier_curve(self, t, p0, p1, p2, p3):
+        # Calculate point on bezier curve at time t
+        x = (1-t)**3 * p0.x() + 3*(1-t)**2*t * p1.x() + 3*(1-t)*t**2 * p2.x() + t**3 * p3.x()
+        y = (1-t)**3 * p0.y() + 3*(1-t)**2*t * p1.y() + 3*(1-t)*t**2 * p2.y() + t**3 * p3.y()
+        return QPoint(int(x), int(y))
+
+    def update_facing_direction(self, new_pos):
+        if self.last_pos is not None:
+            # Determine direction based on x movement
+            moving_right = new_pos.x() > self.last_pos.x()
+            
+            # Only update direction if there's significant horizontal movement
+            if abs(new_pos.x() - self.last_pos.x()) > 5:
+                if moving_right and not self.facing_right:
+                    self.facing_right = True
+                elif not moving_right and self.facing_right:
+                    self.facing_right = False
+        
+        self.last_pos = new_pos
+
+    def get_current_frame(self):
+        if self.current_state in self.animations and self.animations[self.current_state]:
+            pixmap = self.animations[self.current_state][self.frame_index]
+            
+            # Flip the sprite if facing left
+            if not self.facing_right:
+                transform = QTransform()
+                transform.scale(-1, 1)  # Flip horizontally
+                pixmap = pixmap.transformed(transform)
+            
+            return pixmap
+        return None
+
     def updateAnimation(self):
         if self.current_state in self.animations:
             frames = self.animations[self.current_state]
             if frames:
                 self.frame_index = (self.frame_index + 1) % len(frames)
-                self.sprite_label.setPixmap(frames[self.frame_index])
+                
+                # Handle flying movement
+                if self.current_state == "flying":
+                    if self.flying_start is None:
+                        # Initialize new flight path
+                        self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
+                        self.flying_progress = 0
+                    
+                    # Update position along flight path
+                    self.flying_progress += 0.02  # Adjust speed here
+                    if self.flying_progress >= 1:
+                        # Generate new flight path when current one is complete
+                        self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
+                        self.flying_progress = 0
+                    
+                    # Calculate new position
+                    new_pos = self.bezier_curve(
+                        self.flying_progress,
+                        self.flying_start,
+                        self.flying_control_points[0],
+                        self.flying_control_points[1],
+                        self.flying_end
+                    )
+                    
+                    # Update facing direction before moving
+                    self.update_facing_direction(new_pos)
+                    self.move(new_pos)
+                
+                # Update sprite with current frame (and flip if needed)
+                current_frame = self.get_current_frame()
+                if current_frame:
+                    self.sprite_label.setPixmap(current_frame)
                 
                 # Handle transition states
                 if self.frame_index == len(frames) - 1:  # At the last frame
@@ -107,6 +199,12 @@ class OwlPet(QMainWindow):
                         self.changeState(next_state)
                 
                 self.adjustSize()
+        
+        # Reset flying variables when not flying
+        if self.current_state != "flying":
+            self.flying_start = None
+            self.flying_progress = 0
+            self.flying_control_points = []
 
     def changeState(self, new_state):
         self.current_state = new_state
@@ -134,7 +232,9 @@ class OwlPet(QMainWindow):
 
     def mouseMoveEvent(self, event):
         if self.dragging:
-            self.move(self.mapToGlobal(event.pos() - self.offset))
+            new_pos = self.mapToGlobal(event.pos() - self.offset)
+            self.update_facing_direction(new_pos)
+            self.move(new_pos)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
