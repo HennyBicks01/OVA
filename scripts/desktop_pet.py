@@ -169,10 +169,6 @@ class OwlPet(QMainWindow):
                     
                     # Update position along flight path
                     self.flying_progress += 0.02  # Adjust speed here
-                    if self.flying_progress >= 1:
-                        # Generate new flight path when current one is complete
-                        self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
-                        self.flying_progress = 0
                     
                     # Calculate new position
                     new_pos = self.bezier_curve(
@@ -186,6 +182,10 @@ class OwlPet(QMainWindow):
                     # Update facing direction before moving
                     self.update_facing_direction(new_pos)
                     self.move(new_pos)
+                    
+                    # If we've reached the destination, transition to landing
+                    if self.flying_progress >= 1:
+                        self.changeState("landing")
                 
                 # Update sprite with current frame (and flip if needed)
                 current_frame = self.get_current_frame()
