@@ -119,6 +119,9 @@ class OwlPet(QMainWindow):
         ctrl2_x = random.randint(min(start.x(), end.x()), max(start.x(), end.x()))
         ctrl2_y = random.randint(0, self.desktop.height())
         
+        # Set initial facing direction based on flight path
+        self.facing_right = end_x > start.x()
+        
         return start, QPoint(ctrl1_x, ctrl1_y), QPoint(ctrl2_x, ctrl2_y), end
 
     def bezier_curve(self, t, p0, p1, p2, p3):
@@ -145,8 +148,8 @@ class OwlPet(QMainWindow):
         if self.current_state in self.animations and self.animations[self.current_state]:
             pixmap = self.animations[self.current_state][self.frame_index]
             
-            # Flip the sprite if facing left
-            if not self.facing_right:
+            # Flip the sprite if facing left for flight-related animations and regular movement
+            if not self.facing_right and (self.current_state in ["flying", "take_flight", "landing"] or self.dragging):
                 transform = QTransform()
                 transform.scale(-1, 1)  # Flip horizontally
                 pixmap = pixmap.transformed(transform)
@@ -241,9 +244,35 @@ class OwlPet(QMainWindow):
             self.dragging = False
 
     def contextMenuEvent(self, event):
-        # Right-click to dance only if not in transition
+        # Only show menu if not in transition
         if not self.in_transition:
-            self.changeState("dance")
+            # Create action menu
+            action_menu = QMenu(self)
+            
+            # Add actions
+            dance_action = action_menu.addAction("Dance")
+            dance_action.triggered.connect(lambda: self.changeState("dance"))
+            
+            fly_action = action_menu.addAction("Take Flight")
+            fly_action.triggered.connect(lambda: self.initiate_flight())
+            
+            preen_action = action_menu.addAction("Preen")
+            preen_action.triggered.connect(lambda: self.changeState("pruning"))
+            
+            # Add separator before quit
+            action_menu.addSeparator()
+            
+            quit_action = action_menu.addAction("Quit")
+            quit_action.triggered.connect(QApplication.quit)
+            
+            # Show the menu at cursor position
+            action_menu.exec_(event.globalPos())
+
+    def initiate_flight(self):
+        # Generate flight path before starting take-off animation
+        self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
+        self.flying_progress = 0
+        self.changeState("take_flight")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
