@@ -3,9 +3,97 @@ import os
 import random
 import glob
 import math
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QSystemTrayIcon, QMenu
-from PyQt5.QtCore import Qt, QTimer, QPoint
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QSystemTrayIcon, QMenu, QWidget, QPushButton
+from PyQt5.QtCore import Qt, QTimer, QPoint, pyqtSignal, QObject, QSize
 from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform
+import pyttsx3
+import threading
+
+class ChatBubble(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWordWrap(True)
+        self.setStyleSheet("""
+            QLabel {
+                background-color: white;
+                border: 2px solid #ccc;
+                border-radius: 10px;
+                padding: 10px;
+                font-size: 12px;
+            }
+        """)
+        self.hide()
+        
+    def showMessage(self, text, duration=5000):
+        self.setText(text)
+        self.adjustSize()
+        self.show()
+        QTimer.singleShot(duration, self.hide)
+
+class ResponseHandler(QObject):
+    response_ready = pyqtSignal(str)
+    
+    def __init__(self):
+        super().__init__()
+
+class SpeechBubbleWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # Create main layout widget
+        self.content = QWidget(self)
+        self.content.setStyleSheet("""
+            QWidget {
+                background-color: #FFE4E1;
+                border: 3px solid #FF69B4;
+                border-radius: 15px;
+            }
+        """)
+        
+        # Create the label for text
+        self.label = QLabel(self.content)
+        self.label.setStyleSheet("""
+            QLabel {
+                border: none;
+                background-color: transparent;
+                font-family: 'Comic Sans MS', cursive;
+                font-size: 14px;
+                color: #333333;
+                min-width: 200px;
+                max-width: 400px;
+                padding: 15px;
+            }
+        """)
+        self.label.setWordWrap(True)
+        self.label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        
+    def setText(self, text):
+        # Set maximum width for text wrapping
+        screen = QApplication.primaryScreen().geometry()
+        max_width = min(screen.width() - 100, 400)  # Maximum of 400px or screen width - 100px
+        self.label.setMaximumWidth(max_width)
+        
+        # Set text and adjust size
+        self.label.setText(text)
+        self.label.adjustSize()
+        
+        # Resize content widget with padding
+        self.content.resize(
+            self.label.width() + 30,
+            self.label.height() + 30
+        )
+        
+        # Center label in content
+        self.label.move(15, 15)
+        
+        # Resize window to match content
+        self.resize(self.content.size())
+        
+    def showAtPosition(self, x, y):
+        self.move(x, y)
+        self.show()
 
 class OwlPet(QMainWindow):
     def __init__(self):
@@ -13,11 +101,35 @@ class OwlPet(QMainWindow):
         self.initUI()
         self.loadAnimations()
         self.current_state = "idle"
+        self.previous_state = None
         self.frame_index = 0
+        self.animation_timer = QTimer()
+        self.animation_timer.timeout.connect(self.updateAnimation)
+        self.animation_timer.start(100)  # 100ms between frames
+        
+        # Initialize speech bubble window
+        self.speech_bubble = SpeechBubbleWindow()
+        
+        # Initialize response handler
+        self.response_handler = ResponseHandler()
+        self.response_handler.response_ready.connect(self.handle_response_gui)
+        
+        # Initialize voice assistant
+        try:
+            from voice_assistant import VoiceAssistant
+            self.voice_assistant = VoiceAssistant(callback=self.handle_response_thread)
+            self.voice_assistant.start_listening()
+        except ImportError as e:
+            print(f"Voice assistant not available: {e}")
+            self.voice_assistant = None
+        
         self.dragging = False
         self.offset = QPoint()
         self.facing_right = True
         self.last_pos = None
+        
+        # Create chat bubble
+        self.chat_bubble = ChatBubble(self)
         
         # Flying movement variables
         self.flying_start = None
@@ -27,11 +139,6 @@ class OwlPet(QMainWindow):
         
         # Set initial size
         self.setMinimumSize(100, 100)
-        
-        # Animation timer
-        self.animation_timer = QTimer(self)
-        self.animation_timer.timeout.connect(self.updateAnimation)
-        self.animation_timer.start(50)  # Update every 50ms for smoother animation
         
         # State change timer
         self.state_timer = QTimer(self)
@@ -53,7 +160,9 @@ class OwlPet(QMainWindow):
         
         # Track if we're in a transition animation
         self.in_transition = False
-
+        
+        self.setup_tts()
+        
     def initUI(self):
         # Create a window without frame that stays on top
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
@@ -273,6 +382,93 @@ class OwlPet(QMainWindow):
         self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
         self.flying_progress = 0
         self.changeState("take_flight")
+
+    def handle_response_thread(self, response):
+        """Handle the response in the background thread"""
+        self.response_handler.response_ready.emit(response)
+    
+    def handle_response_gui(self, response):
+        """Handle the response in the main GUI thread"""
+        # Show response in speech bubble
+        self.show_speech_bubble(response)
+        # Speak the response
+        self.speak_response(response)
+        # Make owl do a little dance
+        if not self.in_transition:
+            self.changeState("dance")
+        
+    def show_speech_bubble(self, text):
+        """Show a speech bubble with the response"""
+        # Set text and adjust size
+        self.speech_bubble.setText(text)
+        
+        # Get screen dimensions and owl position
+        screen = QApplication.primaryScreen().geometry()
+        window_pos = self.pos()
+        
+        # Calculate position for speech bubble
+        bubble_x = window_pos.x() + self.width() + 20  # 20px to the right of the owl
+        bubble_y = window_pos.y() - self.speech_bubble.height() // 2 + self.height() // 2  # Center vertically with owl
+        
+        # If bubble would go off screen to the right, move it to the left of the owl
+        if bubble_x + self.speech_bubble.width() > screen.width():
+            bubble_x = window_pos.x() - self.speech_bubble.width() - 20
+        
+        # If bubble would go off screen vertically, adjust y position
+        if bubble_y < 0:
+            bubble_y = 0
+        elif bubble_y + self.speech_bubble.height() > screen.height():
+            bubble_y = screen.height() - self.speech_bubble.height()
+        
+        # Show the speech bubble at calculated position
+        self.speech_bubble.showAtPosition(bubble_x, bubble_y)
+        
+    def speak_response(self, response):
+        """Speak the response using text-to-speech"""
+        def speak():
+            try:
+                if not hasattr(self, 'engine'):
+                    self.setup_tts()
+                
+                # Start dancing
+                self.changeState("dance")
+                
+                self.engine.say(response)
+                self.engine.runAndWait()
+                
+                # Stop dancing and return to idle
+                self.changeState("idle")
+                
+                # Hide speech bubble after speaking is done
+                self.speech_bubble.hide()
+            except Exception as e:
+                print(f"Error in TTS: {e}")
+                self.changeState("idle")
+        
+        # Run in a separate thread to avoid blocking
+        threading.Thread(target=speak, daemon=True).start()
+        
+    def setup_tts(self):
+        """Setup text-to-speech engine with child voice"""
+        self.engine = pyttsx3.init()
+        voices = self.engine.getProperty('voices')
+        # Try to find a child-like voice
+        for voice in voices:
+            if 'child' in voice.name.lower():
+                self.engine.setProperty('voice', voice.id)
+                break
+        # Set a higher pitch for more child-like voice
+        self.engine.setProperty('rate', 150)
+        self.engine.setProperty('pitch', 1.5)
+        
+    def closeEvent(self, event):
+        """Clean up when closing"""
+        if hasattr(self, 'speech_bubble'):
+            self.speech_bubble.hide()
+            self.speech_bubble.deleteLater()
+        if self.voice_assistant:
+            self.voice_assistant.stop_listening()
+        event.accept()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
