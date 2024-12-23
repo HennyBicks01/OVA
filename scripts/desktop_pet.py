@@ -181,12 +181,12 @@ class OwlPet(QWidget):
         look_around_action.triggered.connect(lambda: self.setState("look_around"))
         
         take_flight_action = menu.addAction("Take Flight")
-        take_flight_action.triggered.connect(lambda: self.setState("take_flight"))
+        take_flight_action.triggered.connect(lambda: self.initiate_flight())
         
         menu.addSeparator()
         
-        settings_action = menu.addAction("Voice Settings")
-        settings_action.triggered.connect(self.showVoiceSettings)
+        settings_action = menu.addAction("Settings")
+        settings_action.triggered.connect(self.showSettings)
         
         quit_action = menu.addAction("Quit")
         quit_action.triggered.connect(QApplication.quit)
@@ -245,8 +245,17 @@ class OwlPet(QWidget):
         # Update frame index
         self.frame_index = (self.frame_index + 1) % len(current_frames)
         
+        # Get the current frame
+        current_frame = current_frames[self.frame_index]
+        
+        # Flip the sprite if facing left for flight-related animations
+        if not self.facing_right and (self.current_state in ["flying", "take_flight", "landing"]):
+            transform = QTransform()
+            transform.scale(-1, 1)  # Flip horizontally
+            current_frame = current_frame.transformed(transform)
+        
         # Update image
-        self.sprite_label.setPixmap(current_frames[self.frame_index])
+        self.sprite_label.setPixmap(current_frame)
         
         # Handle state transitions at the end of non-looping animations
         if self.frame_index == len(current_frames) - 1:  # At last frame
@@ -279,8 +288,7 @@ class OwlPet(QWidget):
             self.flying_end
         )
         
-        # Update facing direction before moving
-        self.update_facing_direction(new_pos)
+        # Move to new position
         self.move(new_pos)
         
         # If we've reached the destination, transition to landing
@@ -291,13 +299,33 @@ class OwlPet(QWidget):
         if self.current_state != "flying":
             self.flying_start = None
             self.flying_control_points = []
+            
+    def initiate_flight(self):
+        """Start the flight sequence"""
+        self.setState("take_flight")
 
     def setState(self, new_state):
         """Change the current state and reset animation"""
+        # Store previous state
         self.previous_state = self.current_state
+        
+        # Update to new state
         self.current_state = new_state
         self.frame_index = 0
+        
+        # Reset animation timer
         self.animation_timer.setInterval(self.frame_delay)
+        
+        # If transitioning to idle after landing, keep the last facing direction
+        if new_state == "idle" and self.previous_state == "landing":
+            return
+            
+        # If starting a new flight sequence, update facing direction
+        if new_state == "take_flight":
+            # Generate flight path and set direction
+            self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
+            self.flying_progress = 0
+            self.facing_right = self.flying_end.x() > self.flying_start.x()
 
     def randomStateChange(self):
         # Don't change state if we're in a transition animation
@@ -445,20 +473,8 @@ class OwlPet(QWidget):
             # Show the menu at cursor position
             action_menu.exec_(event.globalPos())
 
-    def initiate_flight(self):
-        # Generate flight path before starting take-off animation
-        self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
-        self.flying_progress = 0
-        self.setState("take_flight")
-
-    def closeEvent(self, event):
-        """Clean up resources when closing"""
-        if hasattr(self, 'voice_assistant'):
-            self.voice_assistant.stop_listening()
-        event.accept()
-
     def generate_bezier_points(self):
-        # Generate a new random flight path using bezier curves
+        """Generate a new random flight path using bezier curves"""
         start = self.pos()
         
         # Generate random end point on screen
@@ -471,9 +487,6 @@ class OwlPet(QWidget):
         ctrl1_y = random.randint(0, self.desktop.height())
         ctrl2_x = random.randint(min(start.x(), end.x()), max(start.x(), end.x()))
         ctrl2_y = random.randint(0, self.desktop.height())
-        
-        # Set initial facing direction based on flight path
-        self.facing_right = end_x > start.x()
         
         return start, QPoint(ctrl1_x, ctrl1_y), QPoint(ctrl2_x, ctrl2_y), end
 
@@ -498,16 +511,17 @@ class OwlPet(QWidget):
         self.last_pos = new_pos
 
     def get_current_frame(self):
+        """Get the current frame, flipping it if necessary"""
         if self.current_state in self.animations and self.animations[self.current_state]:
-            pixmap = self.animations[self.current_state][self.frame_index]
+            current_frame = self.animations[self.current_state][self.frame_index]
             
             # Flip the sprite if facing left for flight-related animations and regular movement
             if not self.facing_right and (self.current_state in ["flying", "take_flight", "landing"] or self.dragging):
                 transform = QTransform()
                 transform.scale(-1, 1)  # Flip horizontally
-                pixmap = pixmap.transformed(transform)
+                current_frame = current_frame.transformed(transform)
             
-            return pixmap
+            return current_frame
         return None
 
     def showContextMenu(self, position):
@@ -524,15 +538,15 @@ class OwlPet(QWidget):
         menu.addSeparator()
         
         settings_action = menu.addAction("Settings")
-        settings_action.triggered.connect(self.showVoiceSettings)
+        settings_action.triggered.connect(self.showSettings)
         
         quit_action = menu.addAction("Quit")
         quit_action.triggered.connect(QApplication.quit)
         
         menu.exec_(self.mapToGlobal(position))
             
-    def showVoiceSettings(self):
-        """Show voice settings dialog"""
+    def showSettings(self):
+        """Show settings dialog"""
         dialog = SettingsDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             selected_voice = dialog.getSelectedVoice()
