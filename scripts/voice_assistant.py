@@ -78,6 +78,10 @@ class VoiceAssistant:
                                 break
                         
                         if detected_wake_word:
+                            # Start thinking animation
+                            if self.callback:
+                                self.callback("START_THINKING")
+                            
                             # Remove the detected wake word from the text
                             clean_text = text.replace(detected_wake_word, "").strip()
                             # Store the cleaned text
@@ -111,7 +115,7 @@ class VoiceAssistant:
                 Always address the user as "Miss Kathy". Keep your responses cheerful, simple, succinct, and friendly.
                 
                 Important rules:
-                - NEVER use asterisks or describe actions (like *flaps wings* or *blinks*)
+                - NEVER use asterisks or describe actions (like *flaps wings* or *blinks* or *giggle*)
                 - NEVER use emojis
                 - Just speak naturally as a child-like owl assistant
 

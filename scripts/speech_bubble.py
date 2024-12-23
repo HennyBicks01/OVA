@@ -17,9 +17,9 @@ class SpeechBubbleWindow(QWidget):
         self.content = QWidget(self)
         self.content.setStyleSheet("""
             QWidget {
-                background-color: #FFE4E1;
-                border: 3px solid #FF69B4;
-                border-radius: 15px;
+                background-color: #fff;
+                border: 3px solid #888;
+                border-radius: 10px;
             }
         """)
         self.layout.addWidget(self.content)
