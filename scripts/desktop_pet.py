@@ -3,7 +3,7 @@ import os
 import random
 import glob
 import math
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QSystemTrayIcon, QMenu, QWidget, QPushButton
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QSystemTrayIcon, QMenu, QPushButton
 from PyQt5.QtCore import Qt, QTimer, QPoint, pyqtSignal, QObject, QSize
 from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform
 import threading
@@ -39,7 +39,7 @@ class ResponseHandler(QObject):
     def __init__(self):
         super().__init__()
 
-class OwlPet(QMainWindow):
+class OwlPet(QWidget):
     handle_response_signal = pyqtSignal(str)
     start_dance_signal = pyqtSignal()
     stop_dance_signal = pyqtSignal()
@@ -128,14 +128,20 @@ class OwlPet(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
-        # Create label for the sprite
+        # Create sprite label with fixed size
         self.sprite_label = QLabel(self)
-        self.sprite_label.setMinimumSize(64, 64)  # Set minimum size
-        self.setCentralWidget(self.sprite_label)
+        self.sprite_label.setFixedSize(64, 64)
+        self.sprite_label.move(0, 0)  # Position at top-left corner
+        
+        # Set window to same fixed size as sprite
+        self.setFixedSize(48, 48)
+        
+        # Initialize speech bubble window
+        self.speech_bubble = SpeechBubbleWindow()
         
         # Set initial position
         self.desktop = QApplication.desktop().screenGeometry()
-        initial_pos = QPoint(self.desktop.width() - 200, self.desktop.height() - 200)
+        initial_pos = QPoint(self.desktop.width() - 500, self.desktop.height() - 500)
         self.move(initial_pos)
         self.last_pos = initial_pos
         self.show()
@@ -171,7 +177,7 @@ class OwlPet(QMainWindow):
             if os.path.exists(anim_path):
                 frames = sorted(glob.glob(os.path.join(anim_path, '*.png')))
                 if frames:  # Only add if there are frames
-                    self.animations[anim_dir] = [QPixmap(frame).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation) for frame in frames]
+                    self.animations[anim_dir] = [QPixmap(frame).scaled(64, 64, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) for frame in frames]
 
     def generate_bezier_points(self):
         # Generate a new random flight path using bezier curves
@@ -311,50 +317,73 @@ class OwlPet(QMainWindow):
         if event.button() == Qt.LeftButton:
             self.dragging = True
             self.offset = event.pos()
-            if not self.in_transition:
-                self.changeState("idle")
-
-    def mouseMoveEvent(self, event):
-        if self.dragging:
-            new_pos = self.mapToGlobal(event.pos() - self.offset)
-            self.update_facing_direction(new_pos)
-            self.move(new_pos)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.dragging = False
 
-    def contextMenuEvent(self, event):
-        # Only show menu if not in transition
-        if not self.in_transition:
-            # Create action menu
-            action_menu = QMenu(self)
-            
-            # Add actions
-            dance_action = action_menu.addAction("Dance")
-            dance_action.triggered.connect(lambda: self.changeState("dance"))
-            
-            fly_action = action_menu.addAction("Take Flight")
-            fly_action.triggered.connect(lambda: self.initiate_flight())
-            
-            preen_action = action_menu.addAction("Preen")
-            preen_action.triggered.connect(lambda: self.changeState("pruning"))
-            
-            # Add separator before quit
-            action_menu.addSeparator()
-            
-            quit_action = action_menu.addAction("Quit")
-            quit_action.triggered.connect(QApplication.quit)
-            
-            # Show the menu at cursor position
-            action_menu.exec_(event.globalPos())
+    def mouseMoveEvent(self, event):
+        if self.dragging:
+            new_pos = self.mapToParent(event.pos() - self.offset)
+            self.move(new_pos)
+            # Update speech bubble position if it's visible
+            if hasattr(self, 'speech_bubble') and self.speech_bubble.isVisible():
+                self.update_speech_bubble_position()
 
-    def initiate_flight(self):
-        # Generate flight path before starting take-off animation
-        self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
-        self.flying_progress = 0
-        self.changeState("take_flight")
+    def update_speech_bubble_position(self):
+        """Update the speech bubble position based on current owl position"""
+        # Get screen geometry and bubble size
+        screen = QApplication.primaryScreen().geometry()
+        bubble_size = self.speech_bubble.size()
+        owl_pos = self.pos()
+        owl_size = self.size()
+        
+        # Default position: top-right of owl
+        positions = [
+            # Position 1: Top-right of owl (default)
+            (owl_pos.x() + owl_size.width(), owl_pos.y() - bubble_size.height()),
+            # Position 2: Top-left of owl
+            (owl_pos.x() - bubble_size.width(), owl_pos.y() - bubble_size.height()),
+            # Position 3: Bottom-right of owl
+            (owl_pos.x() + owl_size.width(), owl_pos.y() + owl_size.height()),
+            # Position 4: Bottom-left of owl
+            (owl_pos.x() - bubble_size.width(), owl_pos.y() + owl_size.height())
+        ]
+        
+        # Find the best position that keeps the bubble on screen
+        for bubble_x, bubble_y in positions:
+            # Check if bubble fits at this position
+            if (bubble_x >= 0 and 
+                bubble_y >= 0 and 
+                bubble_x + bubble_size.width() <= screen.width() and 
+                bubble_y + bubble_size.height() <= screen.height()):
+                # Found a good position
+                self.speech_bubble.showAtPosition(bubble_x, bubble_y)
+                return
+        
+        # If no perfect position found, use centered position above owl
+        fallback_x = owl_pos.x() + (owl_size.width() - bubble_size.width()) // 2
+        fallback_y = owl_pos.y() - bubble_size.height()
+        
+        # Ensure bubble stays within screen bounds
+        fallback_x = max(0, min(fallback_x, screen.width() - bubble_size.width()))
+        fallback_y = max(0, min(fallback_y, screen.height() - bubble_size.height()))
+        
+        self.speech_bubble.showAtPosition(fallback_x, fallback_y)
 
+    def show_speech_bubble(self, text):
+        """Show a speech bubble with the response"""
+        # Get the last recognized text from the voice assistant
+        last_text = ""
+        if hasattr(self, 'voice_assistant') and self.voice_assistant:
+            last_text = self.voice_assistant.last_text
+        
+        # Update speech bubble text
+        self.speech_bubble.setText(text, last_text)
+        
+        # Update position
+        self.update_speech_bubble_position()
+    
     def handle_response_thread(self, response):
         """Handle the response from a background thread"""
         # Emit signal to handle response in GUI thread
@@ -389,37 +418,37 @@ class OwlPet(QMainWindow):
         self.in_transition = False
         self.changeState("idle")
     
-    def show_speech_bubble(self, text):
-        """Show a speech bubble with the response"""
-        # Get the last recognized text from the voice assistant
-        last_text = ""
-        if hasattr(self, 'voice_assistant'):
-            last_text = getattr(self.voice_assistant, 'last_text', '')
-        
-        # Set text and adjust size
-        self.speech_bubble.setText(text, question=last_text)
-        
-        # Get screen dimensions and owl position
-        screen = QApplication.primaryScreen().geometry()
-        window_pos = self.pos()
-        
-        # Calculate position for speech bubble
-        bubble_x = window_pos.x() + self.width() + 20  # 20px to the right of the owl
-        bubble_y = window_pos.y() - self.speech_bubble.height() // 2 + self.height() // 2  # Center vertically with owl
-        
-        # If bubble would go off screen to the right, move it to the left of the owl
-        if bubble_x + self.speech_bubble.width() > screen.width():
-            bubble_x = window_pos.x() - self.speech_bubble.width() - 20
-        
-        # If bubble would go off screen vertically, adjust y position
-        if bubble_y < 0:
-            bubble_y = 0
-        elif bubble_y + self.speech_bubble.height() > screen.height():
-            bubble_y = screen.height() - self.speech_bubble.height()
-        
-        # Show the speech bubble at calculated position
-        self.speech_bubble.showAtPosition(bubble_x, bubble_y)
-        
+    def contextMenuEvent(self, event):
+        # Only show menu if not in transition
+        if not self.in_transition:
+            # Create action menu
+            action_menu = QMenu(self)
+            
+            # Add actions
+            dance_action = action_menu.addAction("Dance")
+            dance_action.triggered.connect(lambda: self.changeState("dance"))
+            
+            fly_action = action_menu.addAction("Take Flight")
+            fly_action.triggered.connect(lambda: self.initiate_flight())
+            
+            preen_action = action_menu.addAction("Preen")
+            preen_action.triggered.connect(lambda: self.changeState("pruning"))
+            
+            # Add separator before quit
+            action_menu.addSeparator()
+            
+            quit_action = action_menu.addAction("Quit")
+            quit_action.triggered.connect(QApplication.quit)
+            
+            # Show the menu at cursor position
+            action_menu.exec_(event.globalPos())
+
+    def initiate_flight(self):
+        # Generate flight path before starting take-off animation
+        self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
+        self.flying_progress = 0
+        self.changeState("take_flight")
+
     def closeEvent(self, event):
         """Clean up resources when closing"""
         if hasattr(self, 'voice_assistant'):
