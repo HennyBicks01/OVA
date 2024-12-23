@@ -65,6 +65,10 @@ class OwlPet(QWidget):
         self.flying_control_points = []
         self.flying_progress = 0
         
+        # Animation loop counters
+        self.dance_loops = 0
+        self.dance_loops_target = 0
+        
         # Animation states and transitions
         self.state_transitions = {
             "take_flight": ["flying"],  # Take flight transitions to flying
@@ -73,10 +77,11 @@ class OwlPet(QWidget):
             "look_around": ["idle"],    # Look around transitions to idle
             "thinking": ["speaking"],   # Thinking transitions to speaking when response ready
             "speaking": ["idle"],       # Speaking transitions to idle when done
+            "dance": ["idle"],          # Dance transitions to idle after loops complete
         }
         
         # States that should loop
-        self.looping_states = {"flying", "thinking", "speaking"}
+        self.looping_states = {"flying", "thinking", "speaking", "dance"}
         
         # Initialize UI and animations
         self.initUI()
@@ -207,7 +212,7 @@ class OwlPet(QWidget):
         
         # Load all animations
         self.animations = {}
-        for anim_dir in ['idle', 'flying', 'landing', 'take_flight', 'look_around', 'thinking', 'speaking']:
+        for anim_dir in ['idle', 'flying', 'landing', 'take_flight', 'look_around', 'thinking', 'speaking', 'dance']:
             anim_path = os.path.join(assets_dir, anim_dir)
             if os.path.exists(anim_path):
                 frames = sorted(glob.glob(os.path.join(anim_path, '*.png')))
@@ -222,13 +227,6 @@ class OwlPet(QWidget):
                         QPixmap(frame).scaled(scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                         for frame in frames
                     ]
-                    
-                    # If facing left, flip all frames
-                    if not self.facing_right:
-                        self.animations[anim_dir] = [
-                            QPixmap.fromImage(QImage(frame).mirrored(True, False))
-                            for frame in self.animations[anim_dir]
-                        ]
             else:
                 print(f"Warning: Animation directory not found: {anim_path}")
 
@@ -259,7 +257,11 @@ class OwlPet(QWidget):
         
         # Handle state transitions at the end of non-looping animations
         if self.frame_index == len(current_frames) - 1:  # At last frame
-            if self.current_state not in self.looping_states:
+            if self.current_state == "dance":
+                self.dance_loops += 1
+                if self.dance_loops >= self.dance_loops_target:
+                    self.setState("idle")
+            elif self.current_state not in self.looping_states:
                 # Non-looping states transition to their next state
                 if self.current_state in self.state_transitions:
                     next_state = self.state_transitions[self.current_state][0]
@@ -533,7 +535,10 @@ class OwlPet(QWidget):
         look_around_action.triggered.connect(lambda: self.setState("look_around"))
         
         take_flight_action = menu.addAction("Take Flight")
-        take_flight_action.triggered.connect(lambda: self.setState("take_flight"))
+        take_flight_action.triggered.connect(lambda: self.initiate_flight())
+        
+        dance_action = menu.addAction("Dance")
+        dance_action.triggered.connect(self.start_dance)
         
         menu.addSeparator()
         
@@ -545,6 +550,12 @@ class OwlPet(QWidget):
         
         menu.exec_(self.mapToGlobal(position))
             
+    def start_dance(self):
+        """Start the dance animation with random number of loops"""
+        self.dance_loops = 0
+        self.dance_loops_target = random.randint(4, 20)  # Random number of loops between 4 and 20
+        self.setState("dance")
+
     def showSettings(self):
         """Show settings dialog"""
         dialog = SettingsDialog(self)
