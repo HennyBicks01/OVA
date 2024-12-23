@@ -21,6 +21,7 @@ class TTSEngine(QObject):
         self.windows_engine = None
         self.use_fallback = False
         self.config = load_config()
+        self.is_speaking = False
         self.setup_engine()
     
     def setup_engine(self):
@@ -149,11 +150,14 @@ class TTSEngine(QObject):
         """Fallback method using Windows voices"""
         def speak_thread():
             try:
+                self.is_speaking = True
                 self.speak_started.emit()
                 self.windows_engine.say(text)
                 self.windows_engine.runAndWait()
+                self.is_speaking = False
                 self.speak_finished.emit()
             except Exception as e:
+                self.is_speaking = False
                 self.speak_error.emit(str(e))
         
         threading.Thread(target=speak_thread, daemon=True).start()
@@ -162,10 +166,12 @@ class TTSEngine(QObject):
         """Primary method using Azure TTS"""
         def speak_thread():
             try:
+                self.is_speaking = True
                 self.speak_started.emit()
                 result = self.speech_synthesizer.speak_text_async(text).get()
                 
                 if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                    self.is_speaking = False
                     self.speak_finished.emit()
                 else:
                     # If Azure fails, switch to fallback and retry

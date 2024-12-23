@@ -12,6 +12,7 @@ from speech_bubble import SpeechBubbleWindow
 from text_to_speech import TTSEngine
 from settings_dialog import SettingsDialog
 import pyttsx3
+import time
 
 class ChatBubble(QLabel):
     def __init__(self, parent=None):
@@ -27,13 +28,31 @@ class ChatBubble(QLabel):
             }
         """)
         self.hide()
+        self.hide_timer = None
         
     def showMessage(self, text, duration=5000):
         self.setText(text)
         self.adjustSize()
         self.show()
-        QTimer.singleShot(duration, self.hide)
-
+        
+        # Clear any existing timer
+        if self.hide_timer is not None:
+            self.hide_timer.stop()
+            
+        # Create new timer for hiding
+        self.hide_timer = QTimer(self)
+        self.hide_timer.setSingleShot(True)
+        self.hide_timer.timeout.connect(self.hideAndReset)
+        self.hide_timer.start(duration)
+    
+    def hideAndReset(self):
+        """Hide the bubble and notify parent to reset sleep timer"""
+        self.hide()
+        # Get the OwlPet parent and reset its sleep timer
+        parent = self.parent()
+        if parent and hasattr(parent, 'reset_idle_timer'):
+            parent.reset_idle_timer()
+        
 class ResponseHandler(QObject):
     response_ready = pyqtSignal(str)
     
@@ -73,6 +92,13 @@ class OwlPet(QWidget):
         self.reverse_animation = False
         self.held_state = None  # Store state before pickup
         
+        # Sleep timer
+        self.last_activity_time = QTimer()
+        self.last_activity_time.timeout.connect(self.check_idle)
+        self.last_activity_time.start(1000)  # Check every second
+        self.idle_timeout = 30  # 30 seconds for testing
+        self.last_active = time.time()
+        
         # Animation states and transitions
         self.state_transitions = {
             "take_flight": ["flying"],  # Take flight transitions to flying
@@ -84,11 +110,13 @@ class OwlPet(QWidget):
             "dance": ["idle"],          # Dance transitions to idle after loops complete
             "pickup": ["held"],         # Pickup transitions to held state
             "held": ["putdown"],        # Held transitions to putdown when released
-            "putdown": ["idle"]         # Putdown transitions back to previous state
+            "putdown": ["idle"],        # Putdown transitions back to previous state
+            "falling_asleep": ["asleep"],  # Falling asleep transitions to asleep
+            "waking_up": ["idle"],      # Waking up transitions to idle
         }
         
         # States that should loop
-        self.looping_states = {"flying", "thinking", "speaking", "dance", "held"}
+        self.looping_states = {"flying", "thinking", "speaking", "dance", "held", "asleep"}
         
         # Initialize UI and animations
         self.initUI()
@@ -105,11 +133,11 @@ class OwlPet(QWidget):
         self.animation_timer.timeout.connect(self.updateAnimation)
         self.animation_timer.start(self.frame_delay)
         
-        # Random state change timer
-        self.state_timer = QTimer(self)
-        self.state_timer.timeout.connect(self.randomStateChange)
-        self.state_timer.start(random.randint(5000, 10000))  # Random interval between 5-10 seconds
-    
+        # Random state change timer - disabled for now
+        # self.state_timer = QTimer(self)
+        # self.state_timer.timeout.connect(self.randomStateChange)
+        # self.state_timer.start(random.randint(5000, 10000))  # Random interval between 5-10 seconds
+
     def setupComponents(self):
         """Setup additional components like TTS and voice assistant"""
         # Create chat bubble
@@ -219,7 +247,8 @@ class OwlPet(QWidget):
         
         # Load all animations
         self.animations = {}
-        for anim_dir in ['idle', 'flying', 'landing', 'take_flight', 'look_around', 'thinking', 'speaking', 'dance', 'pickup']:
+        for anim_dir in ['idle', 'flying', 'landing', 'take_flight', 'look_around', 'thinking', 
+                        'speaking', 'dance', 'pickup', 'falling_asleep', 'asleep', 'waking_up']:
             anim_path = os.path.join(assets_dir, anim_dir)
             if os.path.exists(anim_path):
                 frames = sorted(glob.glob(os.path.join(anim_path, '*.png')))
@@ -282,6 +311,10 @@ class OwlPet(QWidget):
                 if self.held_state in ["thinking", "speaking"]:
                     next_state = self.held_state
                 self.setState(next_state)
+            elif self.current_state == "falling_asleep":
+                self.setState("asleep")
+            elif self.current_state == "waking_up":
+                self.setState("idle")
             elif self.current_state not in self.looping_states:
                 # Non-looping states transition to their next state
                 if self.current_state in self.state_transitions:
@@ -351,25 +384,22 @@ class OwlPet(QWidget):
             self.facing_right = self.flying_end.x() > self.flying_start.x()
 
     def randomStateChange(self):
-        # Don't change state if we're in a transition animation
-        if self.in_transition:
-            return
-            
-        if random.random() < 0.3:  # 30% chance to change state
-            if self.current_state in self.state_transitions:
-                available_states = self.state_transitions[self.current_state]
-                if available_states:
-                    new_state = random.choice(available_states)
-                    self.setState(new_state)
+        """Disabled random state changes"""
+        pass
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            if self.current_state in ['asleep', 'falling_asleep']:
+                self.wake_up()
+                return
+                
             self.dragging = True
             self.offset = event.pos()
             # Store current state before pickup
             if self.current_state not in ["pickup", "held", "putdown"]:
                 self.held_state = self.current_state
             self.setState("pickup")
+        self.reset_idle_timer()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.dragging:
@@ -384,6 +414,7 @@ class OwlPet(QWidget):
             # Update speech bubble position if it's visible
             if hasattr(self, 'speech_bubble') and self.speech_bubble.isVisible():
                 self.update_speech_bubble_position()
+        self.reset_idle_timer()
 
     def update_speech_bubble_position(self):
         """Update the speech bubble position based on current owl position"""
@@ -441,11 +472,19 @@ class OwlPet(QWidget):
     
     def handle_response_thread(self, response):
         """Handle the response from a background thread"""
-        if response == "START_THINKING":
-            self.start_thinking_signal.emit()
-        else:
-            # Emit signal to handle response in GUI thread
-            self.handle_response_signal.emit(response)
+        try:
+            # Wake up if asleep
+            if self.current_state in ['asleep', 'falling_asleep']:
+                self.wake_up()
+            
+            # Handle different response types
+            if response == "START_THINKING":
+                self.start_thinking_signal.emit()
+            else:
+                # Emit signal to handle response in GUI thread
+                self.handle_response_signal.emit(response)
+        except Exception as e:
+            print(f"Error handling response: {e}")
     
     def handle_response_gui(self, response):
         """Handle the response in the GUI thread"""
@@ -469,16 +508,20 @@ class OwlPet(QWidget):
     
     def on_speak_done(self):
         """Handle completion of speaking in GUI thread"""
-        self.setState("idle")
-        self.speech_bubble.hide()
-    
+        if self.current_state == "speaking":
+            self.setState("idle")
+            self.speech_bubble.hide()
+            self.reset_idle_timer()  # Reset sleep timer when done speaking
+
     def start_speaking(self):
         """Start speaking animation in GUI thread"""
         self.setState("speaking")
-    
+        self.reset_idle_timer()  # Reset sleep timer when starting to speak
+
     def stop_speaking(self):
         """Stop speaking animation in GUI thread"""
         self.setState("idle")
+        self.reset_idle_timer()  # Reset sleep timer when stopping speech
     
     def contextMenuEvent(self, event):
         # Only show menu if not in transition
@@ -590,6 +633,34 @@ class OwlPet(QWidget):
             selected_voice = dialog.getSelectedVoice()
             if selected_voice:
                 self.tts_engine.change_voice(selected_voice)
+
+    def check_idle(self):
+        """Check if Ova has been idle for too long"""
+        # Don't start sleeping if already asleep or in certain states
+        if self.current_state in ['asleep', 'falling_asleep', 'waking_up', 'pickup', 'held', 'putdown', 
+                                'take_flight', 'flying', 'landing', 'dance']:
+            return
+            
+        # Don't sleep if currently speaking
+        if hasattr(self, 'tts_engine') and self.tts_engine.is_speaking:
+            return
+            
+        if time.time() - self.last_active > self.idle_timeout:
+            self.fall_asleep()
+
+    def fall_asleep(self):
+        """Start the falling asleep animation"""
+        self.setState("falling_asleep")
+
+    def wake_up(self):
+        """Wake up from sleep"""
+        if self.current_state in ['asleep', 'falling_asleep']:
+            self.setState("waking_up")
+            self.reset_idle_timer()
+
+    def reset_idle_timer(self):
+        """Reset the idle timer"""
+        self.last_active = time.time()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
