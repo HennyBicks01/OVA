@@ -6,8 +6,11 @@ import math
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QSystemTrayIcon, QMenu, QWidget, QPushButton
 from PyQt5.QtCore import Qt, QTimer, QPoint, pyqtSignal, QObject, QSize
 from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform
-import pyttsx3
 import threading
+from voice_assistant import VoiceAssistant
+from speech_bubble import SpeechBubbleWindow
+from text_to_speech import TTSEngine
+import pyttsx3
 
 class ChatBubble(QLabel):
     def __init__(self, parent=None):
@@ -36,66 +39,11 @@ class ResponseHandler(QObject):
     def __init__(self):
         super().__init__()
 
-class SpeechBubbleWindow(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        
-        # Create main layout widget
-        self.content = QWidget(self)
-        self.content.setStyleSheet("""
-            QWidget {
-                background-color: #FFE4E1;
-                border: 3px solid #FF69B4;
-                border-radius: 15px;
-            }
-        """)
-        
-        # Create the label for text
-        self.label = QLabel(self.content)
-        self.label.setStyleSheet("""
-            QLabel {
-                border: none;
-                background-color: transparent;
-                font-family: 'Comic Sans MS', cursive;
-                font-size: 14px;
-                color: #333333;
-                min-width: 200px;
-                max-width: 400px;
-                padding: 15px;
-            }
-        """)
-        self.label.setWordWrap(True)
-        self.label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        
-    def setText(self, text):
-        # Set maximum width for text wrapping
-        screen = QApplication.primaryScreen().geometry()
-        max_width = min(screen.width() - 100, 400)  # Maximum of 400px or screen width - 100px
-        self.label.setMaximumWidth(max_width)
-        
-        # Set text and adjust size
-        self.label.setText(text)
-        self.label.adjustSize()
-        
-        # Resize content widget with padding
-        self.content.resize(
-            self.label.width() + 30,
-            self.label.height() + 30
-        )
-        
-        # Center label in content
-        self.label.move(15, 15)
-        
-        # Resize window to match content
-        self.resize(self.content.size())
-        
-    def showAtPosition(self, x, y):
-        self.move(x, y)
-        self.show()
-
 class OwlPet(QMainWindow):
+    handle_response_signal = pyqtSignal(str)
+    start_dance_signal = pyqtSignal()
+    stop_dance_signal = pyqtSignal()
+    
     def __init__(self):
         super().__init__()
         self.initUI()
@@ -103,9 +51,13 @@ class OwlPet(QMainWindow):
         self.current_state = "idle"
         self.previous_state = None
         self.frame_index = 0
+        self.frame_delay = 50  # 50ms = 20fps
+        self.dance_frame_delay = 50  # 30ms ≈ 33fps for dancing
+        self.blink_interval = (2000, 4000)  # Random blink every 2-4 seconds
+        self.dance_duration = 3000  # Dance for 3 seconds
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self.updateAnimation)
-        self.animation_timer.start(100)  # 100ms between frames
+        self.animation_timer.start(self.frame_delay)
         
         # Initialize speech bubble window
         self.speech_bubble = SpeechBubbleWindow()
@@ -116,12 +68,17 @@ class OwlPet(QMainWindow):
         
         # Initialize voice assistant
         try:
-            from voice_assistant import VoiceAssistant
             self.voice_assistant = VoiceAssistant(callback=self.handle_response_thread)
             self.voice_assistant.start_listening()
         except ImportError as e:
             print(f"Voice assistant not available: {e}")
             self.voice_assistant = None
+        
+        # Initialize TTS engine
+        self.tts_engine = TTSEngine()
+        self.tts_engine.speak_started.connect(self.start_dance)
+        self.tts_engine.speak_finished.connect(self.on_speak_done)
+        self.tts_engine.speak_error.connect(lambda e: print(f"TTS Error: {e}"))
         
         self.dragging = False
         self.offset = QPoint()
@@ -161,8 +118,11 @@ class OwlPet(QMainWindow):
         # Track if we're in a transition animation
         self.in_transition = False
         
-        self.setup_tts()
-        
+        # Connect all signals
+        self.handle_response_signal.connect(self.handle_response_gui)
+        self.start_dance_signal.connect(self.start_dance)
+        self.stop_dance_signal.connect(self.stop_dance)
+
     def initUI(self):
         # Create a window without frame that stays on top
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
@@ -267,50 +227,55 @@ class OwlPet(QMainWindow):
         return None
 
     def updateAnimation(self):
-        if self.current_state in self.animations:
-            frames = self.animations[self.current_state]
-            if frames:
-                self.frame_index = (self.frame_index + 1) % len(frames)
-                
-                # Handle flying movement
-                if self.current_state == "flying":
-                    if self.flying_start is None:
-                        # Initialize new flight path
-                        self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
-                        self.flying_progress = 0
-                    
-                    # Update position along flight path
-                    self.flying_progress += 0.02  # Adjust speed here
-                    
-                    # Calculate new position
-                    new_pos = self.bezier_curve(
-                        self.flying_progress,
-                        self.flying_start,
-                        self.flying_control_points[0],
-                        self.flying_control_points[1],
-                        self.flying_end
-                    )
-                    
-                    # Update facing direction before moving
-                    self.update_facing_direction(new_pos)
-                    self.move(new_pos)
-                    
-                    # If we've reached the destination, transition to landing
-                    if self.flying_progress >= 1:
-                        self.changeState("landing")
-                
-                # Update sprite with current frame (and flip if needed)
-                current_frame = self.get_current_frame()
-                if current_frame:
-                    self.sprite_label.setPixmap(current_frame)
-                
-                # Handle transition states
-                if self.frame_index == len(frames) - 1:  # At the last frame
-                    if self.current_state in ["take_flight", "landing", "pruning"]:
-                        next_state = self.state_transitions[self.current_state][0]
-                        self.changeState(next_state)
-                
-                self.adjustSize()
+        """Update the current animation frame"""
+        if not self.animations or not self.animations.get(self.current_state):
+            return
+
+        # Get current frame list
+        current_frames = self.animations[self.current_state]
+        if not current_frames:
+            return
+
+        # Update frame index
+        self.frame_index = (self.frame_index + 1) % len(current_frames)
+        
+        # Update image
+        self.sprite_label.setPixmap(current_frames[self.frame_index])
+        
+        # Handle flying movement
+        if self.current_state == "flying":
+            if self.flying_start is None:
+                # Initialize new flight path
+                self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
+                self.flying_progress = 0
+            
+            # Update position along flight path
+            self.flying_progress += 0.02  # Adjust speed here
+            
+            # Calculate new position
+            new_pos = self.bezier_curve(
+                self.flying_progress,
+                self.flying_start,
+                self.flying_control_points[0],
+                self.flying_control_points[1],
+                self.flying_end
+            )
+            
+            # Update facing direction before moving
+            self.update_facing_direction(new_pos)
+            self.move(new_pos)
+            
+            # If we've reached the destination, transition to landing
+            if self.flying_progress >= 1:
+                self.changeState("landing")
+        
+        # Handle transition states
+        if self.frame_index == len(current_frames) - 1:  # At the last frame
+            if self.current_state in ["take_flight", "landing", "pruning"]:
+                next_state = self.state_transitions[self.current_state][0]
+                self.changeState(next_state)
+        
+        self.adjustSize()
         
         # Reset flying variables when not flying
         if self.current_state != "flying":
@@ -319,9 +284,16 @@ class OwlPet(QMainWindow):
             self.flying_control_points = []
 
     def changeState(self, new_state):
-        self.current_state = new_state
-        self.frame_index = 0
-        self.in_transition = new_state in ["take_flight", "landing", "pruning"]
+        if new_state == "dance" and not self.in_transition:
+            self.in_transition = True
+            self.current_state = new_state
+            self.frame_index = 0
+            self.animation_timer.setInterval(self.dance_frame_delay)
+            QTimer.singleShot(self.dance_duration, self.stop_dance)
+        else:
+            self.current_state = new_state
+            self.frame_index = 0
+            self.animation_timer.setInterval(self.frame_delay)
 
     def randomStateChange(self):
         # Don't change state if we're in a transition animation
@@ -384,23 +356,48 @@ class OwlPet(QMainWindow):
         self.changeState("take_flight")
 
     def handle_response_thread(self, response):
-        """Handle the response in the background thread"""
-        self.response_handler.response_ready.emit(response)
+        """Handle the response from a background thread"""
+        # Emit signal to handle response in GUI thread
+        self.handle_response_signal.emit(response)
     
     def handle_response_gui(self, response):
-        """Handle the response in the main GUI thread"""
-        # Show response in speech bubble
-        self.show_speech_bubble(response)
-        # Speak the response
-        self.speak_response(response)
-        # Make owl do a little dance
+        """Handle the response in the GUI thread"""
+        try:
+            # Show the speech bubble with both question and response
+            self.show_speech_bubble(response)
+            # Speak the response
+            self.speak_response(response)
+        except Exception as e:
+            print(f"Error handling response: {e}")
+    
+    def speak_response(self, response):
+        """Speak the response using TTS"""
+        self.tts_engine.speak(response)
+    
+    def on_speak_done(self):
+        """Handle completion of speaking in GUI thread"""
+        self.stop_dance()
+        self.speech_bubble.hide()
+    
+    def start_dance(self):
+        """Start dance animation in GUI thread"""
         if not self.in_transition:
             self.changeState("dance")
-        
+    
+    def stop_dance(self):
+        """Stop dance animation in GUI thread"""
+        self.in_transition = False
+        self.changeState("idle")
+    
     def show_speech_bubble(self, text):
         """Show a speech bubble with the response"""
+        # Get the last recognized text from the voice assistant
+        last_text = ""
+        if hasattr(self, 'voice_assistant'):
+            last_text = getattr(self.voice_assistant, 'last_text', '')
+        
         # Set text and adjust size
-        self.speech_bubble.setText(text)
+        self.speech_bubble.setText(text, question=last_text)
         
         # Get screen dimensions and owl position
         screen = QApplication.primaryScreen().geometry()
@@ -423,50 +420,9 @@ class OwlPet(QMainWindow):
         # Show the speech bubble at calculated position
         self.speech_bubble.showAtPosition(bubble_x, bubble_y)
         
-    def speak_response(self, response):
-        """Speak the response using text-to-speech"""
-        def speak():
-            try:
-                if not hasattr(self, 'engine'):
-                    self.setup_tts()
-                
-                # Start dancing
-                self.changeState("dance")
-                
-                self.engine.say(response)
-                self.engine.runAndWait()
-                
-                # Stop dancing and return to idle
-                self.changeState("idle")
-                
-                # Hide speech bubble after speaking is done
-                self.speech_bubble.hide()
-            except Exception as e:
-                print(f"Error in TTS: {e}")
-                self.changeState("idle")
-        
-        # Run in a separate thread to avoid blocking
-        threading.Thread(target=speak, daemon=True).start()
-        
-    def setup_tts(self):
-        """Setup text-to-speech engine with child voice"""
-        self.engine = pyttsx3.init()
-        voices = self.engine.getProperty('voices')
-        # Try to find a child-like voice
-        for voice in voices:
-            if 'child' in voice.name.lower():
-                self.engine.setProperty('voice', voice.id)
-                break
-        # Set a higher pitch for more child-like voice
-        self.engine.setProperty('rate', 150)
-        self.engine.setProperty('pitch', 1.5)
-        
     def closeEvent(self, event):
-        """Clean up when closing"""
-        if hasattr(self, 'speech_bubble'):
-            self.speech_bubble.hide()
-            self.speech_bubble.deleteLater()
-        if self.voice_assistant:
+        """Clean up resources when closing"""
+        if hasattr(self, 'voice_assistant'):
             self.voice_assistant.stop_listening()
         event.accept()
 
