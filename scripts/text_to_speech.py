@@ -1,6 +1,13 @@
+import os
+from dotenv import load_dotenv
+import azure.cognitiveservices.speech as speechsdk
 import pyttsx3
 from PyQt5.QtCore import QObject, pyqtSignal
 import threading
+from config import load_config
+
+# Load environment variables
+load_dotenv()
 
 class TTSEngine(QObject):
     speak_started = pyqtSignal()
@@ -9,51 +16,132 @@ class TTSEngine(QObject):
     
     def __init__(self):
         super().__init__()
-        self.engine = None
+        self.speech_config = None
+        self.speech_synthesizer = None
+        self.windows_engine = None
+        self.use_fallback = False
+        self.config = load_config()
         self.setup_engine()
     
     def setup_engine(self):
-        """Setup text-to-speech engine with child voice"""
+        """Setup Azure text-to-speech engine with fallback to Windows voices"""
         try:
-            self.engine = pyttsx3.init()
+            # First set up Windows engine as fallback
+            self.windows_engine = pyttsx3.init()
+            voices = self.windows_engine.getProperty('voices')
             
-            # Configure for child-like voice
-            voices = self.engine.getProperty('voices')
-            # Try to find a child-like or female voice
-            child_voice = None
-            for voice in voices:
-                if 'child' in voice.name.lower() or 'female' in voice.name.lower():
-                    child_voice = voice
-                    break
+            # Get saved voice settings
+            voice_type = self.config.get('voice_type', 'Azure Voice')
+            voice_name = self.config.get('voice_name', 'en-US-AnaNeural')
             
-            # Set voice if found, otherwise use default
-            if child_voice:
-                self.engine.setProperty('voice', child_voice.id)
+            # Configure Windows voice
+            if len(voices) > 0:
+                if voice_type == 'Windows Voice':
+                    self.windows_engine.setProperty('voice', voice_name)
+                else:
+                    # Use first available voice as fallback
+                    self.windows_engine.setProperty('voice', voices[0].id)
             
-            # Adjust properties for child-like speech
-            self.engine.setProperty('rate', 150)  # Slightly faster than default
-            self.engine.setProperty('pitch', 150)  # Higher pitch
-            self.engine.setProperty('volume', 0.9)  # Slightly quieter
+            self.windows_engine.setProperty('rate', 150)
+            self.windows_engine.setProperty('pitch', 270)
+            self.windows_engine.setProperty('volume', 0.9)
+            
+            # If Windows voice is selected, don't try Azure
+            if voice_type == 'Windows Voice':
+                self.use_fallback = True
+                return
+            
+            # Now try to set up Azure
+            speech_key = os.getenv('AZURE_SPEECH_KEY')
+            speech_region = os.getenv('AZURE_SPEECH_REGION')
+            
+            if not speech_key or not speech_region:
+                self.use_fallback = True
+                return
+            
+            # Initialize Azure Speech config
+            self.speech_config = speechsdk.SpeechConfig(
+                subscription=speech_key, 
+                region=speech_region
+            )
+            
+            # Set to use saved Azure voice
+            self.speech_config.speech_synthesis_voice_name = voice_name
+            
+            # Create speech synthesizer
+            self.speech_synthesizer = speechsdk.SpeechSynthesizer(
+                speech_config=self.speech_config
+            )
             
         except Exception as e:
-            print(f"Error setting up TTS engine: {e}")
-            self.speak_error.emit(str(e))
+            self.use_fallback = True
+            self.speak_error.emit(f"Falling back to Windows voices: {str(e)}")
+
+    def change_voice(self, voice_name):
+        """Change the voice being used
+        
+        Args:
+            voice_name (str): For Azure, the full voice name (e.g., 'en-US-AnaNeural')
+                            For Windows, the voice ID from Windows SAPI5
+        """
+        if "Neural" in voice_name:  # Azure voice
+            try:
+                if not self.speech_config:
+                    self.setup_engine()
+                self.speech_config.speech_synthesis_voice_name = voice_name
+                self.speech_synthesizer = speechsdk.SpeechSynthesizer(
+                    speech_config=self.speech_config
+                )
+                self.use_fallback = False
+            except Exception as e:
+                self.speak_error.emit(f"Failed to set Azure voice: {str(e)}")
+                self.use_fallback = True
+        else:  # Windows voice
+            try:
+                self.windows_engine.setProperty('voice', voice_name)
+                self.use_fallback = True
+            except Exception as e:
+                self.speak_error.emit(f"Failed to set Windows voice: {str(e)}")
     
     def speak(self, text):
-        """Speak text using TTS in a separate thread"""
+        """Speak text using Azure TTS with fallback to Windows voices"""
+        if self.use_fallback:
+            self._speak_windows(text)
+        else:
+            self._speak_azure(text)
+    
+    def _speak_windows(self, text):
+        """Fallback method using Windows voices"""
         def speak_thread():
             try:
-                if not self.engine:
-                    self.setup_engine()
-                
                 self.speak_started.emit()
-                self.engine.say(text)
-                self.engine.runAndWait()
+                self.windows_engine.say(text)
+                self.windows_engine.runAndWait()
                 self.speak_finished.emit()
-                
             except Exception as e:
-                print(f"Error in TTS: {e}")
                 self.speak_error.emit(str(e))
         
-        # Run in a separate thread to avoid blocking
         threading.Thread(target=speak_thread, daemon=True).start()
+    
+    def _speak_azure(self, text):
+        """Primary method using Azure TTS"""
+        def speak_thread():
+            try:
+                self.speak_started.emit()
+                result = self.speech_synthesizer.speak_text_async(text).get()
+                
+                if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                    self.speak_finished.emit()
+                else:
+                    # If Azure fails, switch to fallback and retry
+                    self.use_fallback = True
+                    self.speak_error.emit("Azure synthesis failed, switching to Windows voices")
+                    self._speak_windows(text)
+                    
+            except Exception as e:
+                # If Azure fails, switch to fallback and retry
+                self.use_fallback = True
+                self.speak_error.emit(f"Azure error, switching to Windows voices: {str(e)}")
+                self._speak_windows(text)
+        
+        threading.Thread(target=speak_thread).start()

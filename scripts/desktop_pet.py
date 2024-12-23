@@ -3,13 +3,14 @@ import os
 import random
 import glob
 import math
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QSystemTrayIcon, QMenu, QPushButton
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QSystemTrayIcon, QMenu, QPushButton, QDialog
 from PyQt5.QtCore import Qt, QTimer, QPoint, pyqtSignal, QObject, QSize
 from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform
 import threading
 from voice_assistant import VoiceAssistant
 from speech_bubble import SpeechBubbleWindow
 from text_to_speech import TTSEngine
+from settings_dialog import VoiceSettingsDialog
 import pyttsx3
 
 class ChatBubble(QLabel):
@@ -99,41 +100,43 @@ class OwlPet(QWidget):
     
     def setupComponents(self):
         """Setup additional components like TTS and voice assistant"""
-        # Initialize voice assistant
-        try:
-            self.voice_assistant = VoiceAssistant(callback=self.handle_response_thread)
-            self.voice_assistant.start_listening()
-        except Exception as e:
-            print(f"Voice assistant not available: {e}")
-            self.voice_assistant = None
+        # Create chat bubble
+        self.chat_bubble = ChatBubble(self)
         
-        # Initialize TTS engine
+        # Initialize TTS Engine
         self.tts_engine = TTSEngine()
         self.tts_engine.speak_started.connect(self.start_speaking)
         self.tts_engine.speak_finished.connect(self.on_speak_done)
         self.tts_engine.speak_error.connect(lambda e: print(f"TTS Error: {e}"))
         
+        # Initialize Voice Assistant
+        try:
+            self.voice_assistant = VoiceAssistant(callback=self.handle_response_thread)
+            print("Voice assistant initialized. Continuously listening...")
+            self.voice_assistant.start_listening()
+        except Exception as e:
+            print(f"Voice assistant not available: {e}")
+            self.voice_assistant = None
+        
         # Connect all signals
         self.handle_response_signal.connect(self.handle_response_gui)
         self.start_thinking_signal.connect(self.start_thinking)
         self.start_speaking_signal.connect(self.start_speaking)
-        self.stop_speaking_signal.connect(self.stop_speaking)
-        
-        # Create system tray
-        self.createSystemTray()
-        
-        # Initialize speech bubble window
-        self.speech_bubble = SpeechBubbleWindow()
+        self.stop_speaking_signal.connect(self.on_speak_done)
         
         # Initialize response handler
         self.response_handler = ResponseHandler()
         self.response_handler.response_ready.connect(self.handle_response_gui)
         
-        # Create chat bubble
-        self.chat_bubble = ChatBubble(self)
-        
         # Set initial size
         self.setMinimumSize(100, 100)
+        
+        # Create context menu
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.showContextMenu)
+        
+        # Initialize speech bubble window
+        self.speech_bubble = SpeechBubbleWindow()
         
         # Set initial position
         self.desktop = QApplication.desktop().screenGeometry()
@@ -141,6 +144,9 @@ class OwlPet(QWidget):
         self.move(initial_pos)
         self.show()
         
+        # Create system tray
+        self.createSystemTray()
+    
     def initUI(self):
         # Create a window without frame that stays on top
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
@@ -163,18 +169,29 @@ class OwlPet(QWidget):
         self.setFixedSize(scaled_size)
     
     def createSystemTray(self):
-        # Create system tray icon
+        """Create system tray icon and menu"""
         self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'idle', '1.png')))
+        self.tray_icon.setIcon(QIcon(os.path.join("assets", "tray_icon.png")))
         
-        # Create tray menu
-        tray_menu = QMenu()
-        show_action = tray_menu.addAction("Show/Hide")
-        show_action.triggered.connect(self.toggleVisibility)
-        quit_action = tray_menu.addAction("Quit")
+        # Create the menu
+        menu = QMenu()
+        
+        # Add actions
+        look_around_action = menu.addAction("Look Around")
+        look_around_action.triggered.connect(lambda: self.setState("look_around"))
+        
+        take_flight_action = menu.addAction("Take Flight")
+        take_flight_action.triggered.connect(lambda: self.setState("take_flight"))
+        
+        menu.addSeparator()
+        
+        settings_action = menu.addAction("Voice Settings")
+        settings_action.triggered.connect(self.showVoiceSettings)
+        
+        quit_action = menu.addAction("Quit")
         quit_action.triggered.connect(QApplication.quit)
         
-        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.setContextMenu(menu)
         self.tray_icon.show()
 
     def toggleVisibility(self):
@@ -237,7 +254,7 @@ class OwlPet(QWidget):
                 # Non-looping states transition to their next state
                 if self.current_state in self.state_transitions:
                     next_state = self.state_transitions[self.current_state][0]
-                    self.changeState(next_state)
+                    self.setState(next_state)
         
         # Handle flying movement
         if self.current_state == "flying":
@@ -268,14 +285,14 @@ class OwlPet(QWidget):
         
         # If we've reached the destination, transition to landing
         if self.flying_progress >= 1:
-            self.changeState("landing")
+            self.setState("landing")
             
         # Reset flying variables when not flying
         if self.current_state != "flying":
             self.flying_start = None
             self.flying_control_points = []
 
-    def changeState(self, new_state):
+    def setState(self, new_state):
         """Change the current state and reset animation"""
         self.previous_state = self.current_state
         self.current_state = new_state
@@ -292,7 +309,7 @@ class OwlPet(QWidget):
                 available_states = self.state_transitions[self.current_state]
                 if available_states:
                     new_state = random.choice(available_states)
-                    self.changeState(new_state)
+                    self.setState(new_state)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -379,7 +396,7 @@ class OwlPet(QWidget):
             # Show the speech bubble with both question and response
             self.show_speech_bubble(response)
             # Change from thinking to speaking
-            self.changeState("speaking")
+            self.setState("speaking")
             # Speak the response
             self.speak_response(response)
         except Exception as e:
@@ -387,7 +404,7 @@ class OwlPet(QWidget):
     
     def start_thinking(self):
         """Start thinking animation when wake word detected"""
-        self.changeState("thinking")
+        self.setState("thinking")
     
     def speak_response(self, response):
         """Speak the response using TTS"""
@@ -395,16 +412,16 @@ class OwlPet(QWidget):
     
     def on_speak_done(self):
         """Handle completion of speaking in GUI thread"""
-        self.changeState("idle")
+        self.setState("idle")
         self.speech_bubble.hide()
     
     def start_speaking(self):
         """Start speaking animation in GUI thread"""
-        self.changeState("speaking")
+        self.setState("speaking")
     
     def stop_speaking(self):
         """Stop speaking animation in GUI thread"""
-        self.changeState("idle")
+        self.setState("idle")
     
     def contextMenuEvent(self, event):
         # Only show menu if not in transition
@@ -417,7 +434,7 @@ class OwlPet(QWidget):
             fly_action.triggered.connect(lambda: self.initiate_flight())
             
             look_action = action_menu.addAction("Look Around")
-            look_action.triggered.connect(lambda: self.changeState("look_around"))
+            look_action.triggered.connect(lambda: self.setState("look_around"))
             
             # Add separator before quit
             action_menu.addSeparator()
@@ -432,7 +449,7 @@ class OwlPet(QWidget):
         # Generate flight path before starting take-off animation
         self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
         self.flying_progress = 0
-        self.changeState("take_flight")
+        self.setState("take_flight")
 
     def closeEvent(self, event):
         """Clean up resources when closing"""
@@ -492,6 +509,35 @@ class OwlPet(QWidget):
             
             return pixmap
         return None
+
+    def showContextMenu(self, position):
+        """Show context menu with settings"""
+        menu = QMenu(self)
+        
+        # Add actions
+        look_around_action = menu.addAction("Look Around")
+        look_around_action.triggered.connect(lambda: self.setState("look_around"))
+        
+        take_flight_action = menu.addAction("Take Flight")
+        take_flight_action.triggered.connect(lambda: self.setState("take_flight"))
+        
+        menu.addSeparator()
+        
+        settings_action = menu.addAction("Voice Settings")
+        settings_action.triggered.connect(self.showVoiceSettings)
+        
+        quit_action = menu.addAction("Quit")
+        quit_action.triggered.connect(QApplication.quit)
+        
+        menu.exec_(self.mapToGlobal(position))
+            
+    def showVoiceSettings(self):
+        """Show voice settings dialog"""
+        dialog = VoiceSettingsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            selected_voice = dialog.getSelectedVoice()
+            if selected_voice:
+                self.tts_engine.change_voice(selected_voice)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
