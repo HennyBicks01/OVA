@@ -10,7 +10,7 @@ import threading
 from voice_assistant import VoiceAssistant
 from speech_bubble import SpeechBubbleWindow
 from text_to_speech import TTSEngine
-from settings_dialog import VoiceSettingsDialog
+from settings_dialog import SettingsDialog
 import pyttsx3
 
 class ChatBubble(QLabel):
@@ -523,7 +523,7 @@ class OwlPet(QWidget):
         
         menu.addSeparator()
         
-        settings_action = menu.addAction("Voice Settings")
+        settings_action = menu.addAction("Settings")
         settings_action.triggered.connect(self.showVoiceSettings)
         
         quit_action = menu.addAction("Quit")
@@ -533,7 +533,7 @@ class OwlPet(QWidget):
             
     def showVoiceSettings(self):
         """Show voice settings dialog"""
-        dialog = VoiceSettingsDialog(self)
+        dialog = SettingsDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             selected_voice = dialog.getSelectedVoice()
             if selected_voice:

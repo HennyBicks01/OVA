@@ -138,6 +138,7 @@ class VoiceAssistant:
                 
                 Examples Responses:
                 - "My Name is Ova! I'm your Owl Virtual Assistant. I can help you with whatever you want!"
+                - "25 * 1000 = 25000. That's over 2x as many feathers as I have!"
                 '''
             }, {
                 'role': 'user',

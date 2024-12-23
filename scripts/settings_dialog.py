@@ -1,12 +1,12 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QComboBox, 
-                             QLabel, QPushButton, QGroupBox)
+                             QLabel, QPushButton, QGroupBox, QTabWidget, QWidget)
 from PyQt5.QtCore import Qt
 from config import load_config, save_config
 
-class VoiceSettingsDialog(QDialog):
+class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Voice Settings")
+        self.setWindowTitle("Settings")
         self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
         self.setModal(True)
         self.config = load_config()
@@ -15,9 +15,16 @@ class VoiceSettingsDialog(QDialog):
     def initUI(self):
         layout = QVBoxLayout()
         
+        # Create tab widget
+        tabs = QTabWidget()
+        
+        # Voice Settings Tab
+        voice_tab = QWidget()
+        voice_layout = QVBoxLayout()
+        
         # Voice Selection Group
         voice_group = QGroupBox("Voice Selection")
-        voice_layout = QVBoxLayout()
+        voice_group_layout = QVBoxLayout()
         
         # Voice Type Selection
         type_layout = QHBoxLayout()
@@ -33,10 +40,15 @@ class VoiceSettingsDialog(QDialog):
         voice_selection_layout.addWidget(QLabel("Voice:"))
         voice_selection_layout.addWidget(self.voice_selection)
         
-        voice_layout.addLayout(type_layout)
-        voice_layout.addLayout(voice_selection_layout)
-        voice_group.setLayout(voice_layout)
-        layout.addWidget(voice_group)
+        voice_group_layout.addLayout(type_layout)
+        voice_group_layout.addLayout(voice_selection_layout)
+        voice_group.setLayout(voice_group_layout)
+        voice_layout.addWidget(voice_group)
+        voice_tab.setLayout(voice_layout)
+        
+        # Add tabs
+        tabs.addTab(voice_tab, "Voice")
+        layout.addWidget(tabs)
         
         # Buttons
         button_layout = QHBoxLayout()
