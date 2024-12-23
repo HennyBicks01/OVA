@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QComboBox, 
-                             QLabel, QPushButton, QGroupBox, QTabWidget, QWidget)
+                             QLabel, QPushButton, QGroupBox, QTabWidget, QWidget, QSpinBox)
 from PyQt5.QtCore import Qt
 from config import load_config, save_config
 
@@ -46,8 +46,30 @@ class SettingsDialog(QDialog):
         voice_layout.addWidget(voice_group)
         voice_tab.setLayout(voice_layout)
         
+        # Behavior Settings Tab
+        behavior_tab = QWidget()
+        behavior_layout = QVBoxLayout()
+        
+        # Sleep Timer Group
+        sleep_group = QGroupBox("Sleep Timer")
+        sleep_group_layout = QHBoxLayout()
+        
+        # Sleep Timer Input
+        self.sleep_timer = QSpinBox()
+        self.sleep_timer.setMinimum(5)  # Minimum 5 seconds
+        self.sleep_timer.setMaximum(3600)  # Maximum 1 hour
+        self.sleep_timer.setValue(self.config.get('sleep_timer', 30))  # Default 30 seconds
+        self.sleep_timer.setSuffix(" seconds")
+        
+        sleep_group_layout.addWidget(QLabel("Time before sleep:"))
+        sleep_group_layout.addWidget(self.sleep_timer)
+        sleep_group.setLayout(sleep_group_layout)
+        behavior_layout.addWidget(sleep_group)
+        behavior_tab.setLayout(behavior_layout)
+        
         # Add tabs
         tabs.addTab(voice_tab, "Voice")
+        tabs.addTab(behavior_tab, "Behavior")
         layout.addWidget(tabs)
         
         # Buttons
@@ -107,6 +129,7 @@ class SettingsDialog(QDialog):
         # Save settings
         self.config['voice_type'] = voice_type
         self.config['voice_name'] = voice
+        self.config['sleep_timer'] = self.sleep_timer.value()
         save_config(self.config)
         
         if voice_type == "Azure Voice":

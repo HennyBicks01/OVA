@@ -11,6 +11,7 @@ from voice_assistant import VoiceAssistant
 from speech_bubble import SpeechBubbleWindow
 from text_to_speech import TTSEngine
 from settings_dialog import SettingsDialog
+from config import load_config, save_config
 import pyttsx3
 import time
 
@@ -75,6 +76,9 @@ class OwlPet(QWidget):
         self.in_transition = False
         self.scale_factor = 3  # Scale sprites 3x
         
+        # Load config
+        self.config = load_config()
+        
         # Movement and position variables
         self.dragging = False
         self.offset = QPoint()
@@ -96,7 +100,7 @@ class OwlPet(QWidget):
         self.last_activity_time = QTimer()
         self.last_activity_time.timeout.connect(self.check_idle)
         self.last_activity_time.start(1000)  # Check every second
-        self.idle_timeout = 30  # 30 seconds for testing
+        self.idle_timeout = self.config.get('sleep_timer', 30)  # Get sleep timer from config, default to 30 seconds
         self.last_active = time.time()
         
         # Animation states and transitions
@@ -630,10 +634,14 @@ class OwlPet(QWidget):
         """Show settings dialog"""
         dialog = SettingsDialog(self)
         if dialog.exec_() == QDialog.Accepted:
+            # Update voice if changed
             selected_voice = dialog.getSelectedVoice()
             if selected_voice:
                 self.tts_engine.change_voice(selected_voice)
-
+            
+            # Reload config to get new sleep timer
+            self.config = load_config()
+    
     def check_idle(self):
         """Check if Ova has been idle for too long"""
         # Don't start sleeping if already asleep or in certain states
@@ -645,7 +653,10 @@ class OwlPet(QWidget):
         if hasattr(self, 'tts_engine') and self.tts_engine.is_speaking:
             return
             
-        if time.time() - self.last_active > self.idle_timeout:
+        # Get sleep timer from config, default to 30 seconds
+        sleep_timer = self.config.get('sleep_timer', 30)
+            
+        if time.time() - self.last_active > sleep_timer:
             self.fall_asleep()
 
     def fall_asleep(self):
