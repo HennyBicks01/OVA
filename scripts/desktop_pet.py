@@ -69,6 +69,10 @@ class OwlPet(QWidget):
         self.dance_loops = 0
         self.dance_loops_target = 0
         
+        # Pickup animation state
+        self.reverse_animation = False
+        self.held_state = None  # Store state before pickup
+        
         # Animation states and transitions
         self.state_transitions = {
             "take_flight": ["flying"],  # Take flight transitions to flying
@@ -78,10 +82,13 @@ class OwlPet(QWidget):
             "thinking": ["speaking"],   # Thinking transitions to speaking when response ready
             "speaking": ["idle"],       # Speaking transitions to idle when done
             "dance": ["idle"],          # Dance transitions to idle after loops complete
+            "pickup": ["held"],         # Pickup transitions to held state
+            "held": ["putdown"],        # Held transitions to putdown when released
+            "putdown": ["idle"]         # Putdown transitions back to previous state
         }
         
         # States that should loop
-        self.looping_states = {"flying", "thinking", "speaking", "dance"}
+        self.looping_states = {"flying", "thinking", "speaking", "dance", "held"}
         
         # Initialize UI and animations
         self.initUI()
@@ -212,7 +219,7 @@ class OwlPet(QWidget):
         
         # Load all animations
         self.animations = {}
-        for anim_dir in ['idle', 'flying', 'landing', 'take_flight', 'look_around', 'thinking', 'speaking', 'dance']:
+        for anim_dir in ['idle', 'flying', 'landing', 'take_flight', 'look_around', 'thinking', 'speaking', 'dance', 'pickup']:
             anim_path = os.path.join(assets_dir, anim_dir)
             if os.path.exists(anim_path):
                 frames = sorted(glob.glob(os.path.join(anim_path, '*.png')))
@@ -227,6 +234,12 @@ class OwlPet(QWidget):
                         QPixmap(frame).scaled(scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                         for frame in frames
                     ]
+                    
+                    # Create putdown animation by reversing pickup frames
+                    if anim_dir == 'pickup':
+                        self.animations['putdown'] = list(reversed(self.animations['pickup']))
+                        # Create held state using last frame of pickup
+                        self.animations['held'] = [self.animations['pickup'][-1]]
             else:
                 print(f"Warning: Animation directory not found: {anim_path}")
 
@@ -261,6 +274,14 @@ class OwlPet(QWidget):
                 self.dance_loops += 1
                 if self.dance_loops >= self.dance_loops_target:
                     self.setState("idle")
+            elif self.current_state == "pickup":
+                self.setState("held")
+            elif self.current_state == "putdown":
+                # Return to previous state or idle
+                next_state = "idle"
+                if self.held_state in ["thinking", "speaking"]:
+                    next_state = self.held_state
+                self.setState(next_state)
             elif self.current_state not in self.looping_states:
                 # Non-looping states transition to their next state
                 if self.current_state in self.state_transitions:
@@ -270,7 +291,7 @@ class OwlPet(QWidget):
         # Handle flying movement
         if self.current_state == "flying":
             self.handle_flying_movement()
-    
+
     def handle_flying_movement(self):
         """Handle movement during flying animation"""
         if self.flying_start is None:
@@ -345,10 +366,16 @@ class OwlPet(QWidget):
         if event.button() == Qt.LeftButton:
             self.dragging = True
             self.offset = event.pos()
+            # Store current state before pickup
+            if self.current_state not in ["pickup", "held", "putdown"]:
+                self.held_state = self.current_state
+            self.setState("pickup")
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.LeftButton and self.dragging:
             self.dragging = False
+            if self.current_state in ["pickup", "held"]:
+                self.setState("putdown")
 
     def mouseMoveEvent(self, event):
         if self.dragging:
