@@ -3,9 +3,9 @@ import os
 import random
 import glob
 import math
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QSystemTrayIcon, QMenu, QPushButton, QDialog
+from PyQt5.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QPushButton, QDialog
 from PyQt5.QtCore import Qt, QTimer, QPoint, pyqtSignal, QObject, QSize
-from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform
+from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform, QPainter
 import threading
 from voice_assistant import VoiceAssistant
 from display.display_manager import DisplayManager
@@ -20,42 +20,31 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class ChatBubble(QLabel):
+class ChatBubble:
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWordWrap(True)
-        self.setStyleSheet("""
-            QLabel {
-                background-color: white;
-                border: 2px solid #ccc;
-                border-radius: 10px;
-                padding: 10px;
-                font-size: 12px;
-            }
-        """)
-        self.hide()
+        self.parent = parent
+        self.text = ""
+        self.duration = 5000
         self.hide_timer = None
         
     def showMessage(self, text, duration=5000):
-        self.setText(text)
-        self.adjustSize()
-        self.show()
+        self.text = text
+        self.duration = duration
         
         # Clear any existing timer
         if self.hide_timer is not None:
             self.hide_timer.stop()
             
         # Create new timer for hiding
-        self.hide_timer = QTimer(self)
+        self.hide_timer = QTimer(self.parent)
         self.hide_timer.setSingleShot(True)
         self.hide_timer.timeout.connect(self.hideAndReset)
         self.hide_timer.start(duration)
     
     def hideAndReset(self):
         """Hide the bubble and notify parent to reset sleep timer"""
-        self.hide()
         # Get the OwlPet parent and reset its sleep timer
-        parent = self.parent()
+        parent = self.parent
         if parent and hasattr(parent, 'reset_idle_timer'):
             parent.reset_idle_timer()
         
@@ -79,7 +68,7 @@ class OwlPet(QWidget):
         self.frame_index = 0
         self.frame_delay = 50  # 50ms = 20fps for normal animations
         self.in_transition = False
-        self.scale_factor = 3  # Scale sprites 3x
+        self.scale_factor = 2  # Reduced scale factor
         
         # Load config
         self.config = self.load_config()
@@ -202,23 +191,9 @@ class OwlPet(QWidget):
         # Create a window without frame that stays on top
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, False)
         
-        # Create sprite label
-        self.sprite_label = QLabel(self)
-        
-        # Load a sample frame to get base dimensions
-        sample_frame = QPixmap(os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                                          'assets', 'idle', '1.png'))
-        scaled_size = QSize(sample_frame.width() * self.scale_factor, 
-                          sample_frame.height() * self.scale_factor)
-        
-        # Set sizes based on scaled dimensions
-        self.sprite_label.setFixedSize(scaled_size)
-        self.sprite_label.move(0, 0)  # Position at top-left corner
-        
-        # Set window to same fixed size as sprite
-        self.setFixedSize(scaled_size)
-    
     def createSystemTray(self):
         """Create system tray icon and menu"""
         self.tray_icon = QSystemTrayIcon(self)
@@ -266,12 +241,24 @@ class OwlPet(QWidget):
                 if frames:
                     # Load first frame to get dimensions
                     first_frame = QPixmap(frames[0])
-                    scaled_size = QSize(first_frame.width() * self.scale_factor, 
-                                     first_frame.height() * self.scale_factor)
+                    base_size = first_frame.size()
                     
-                    # Scale all frames
+                    # Calculate scaled size maintaining aspect ratio
+                    scaled_width = base_size.width() * self.scale_factor
+                    scaled_height = base_size.height() * self.scale_factor
+                    scaled_size = QSize(scaled_width, scaled_height)
+                    
+                    # Set window to scaled size
+                    self.setFixedSize(scaled_size)
+                    
+                    # Scale all frames maintaining square pixels
                     self.animations[anim_dir] = [
-                        QPixmap(frame).scaled(scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        QPixmap(frame).scaled(
+                            scaled_width,
+                            scaled_height,
+                            Qt.IgnoreAspectRatio,  # Force exact dimensions
+                            Qt.FastTransformation  # Use nearest-neighbor scaling
+                        )
                         for frame in frames
                     ]
                     
@@ -306,7 +293,7 @@ class OwlPet(QWidget):
             current_frame = current_frame.transformed(transform)
         
         # Update image
-        self.sprite_label.setPixmap(current_frame)
+        self.update()  # Request a repaint
         
         # Handle state transitions at the end of non-looping animations
         if self.frame_index == len(current_frames) - 1:  # At last frame
@@ -770,6 +757,19 @@ class OwlPet(QWidget):
     def reset_idle_timer(self):
         """Reset the idle timer"""
         self.last_active = time.time()
+
+    def paintEvent(self, event):
+        """Custom paint event to ensure pixel-perfect rendering"""
+        if not self.animations:
+            return
+            
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, False)  # Disable antialiasing
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        
+        current_frame = self.get_current_frame()
+        if current_frame:
+            painter.drawPixmap(self.rect(), current_frame)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
