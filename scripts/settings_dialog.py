@@ -25,7 +25,8 @@ class SettingsDialog(QDialog):
             'voice_type': 'Azure Voice',
             'voice_name': 'en-US-AnaNeural',
             'sleep_timer': 30,
-            'personality_preset': 'ova'
+            'personality_preset': 'ova',
+            'display_mode': 'bubble'
         }
         
         try:
@@ -84,6 +85,20 @@ class SettingsDialog(QDialog):
         
         preset_group.setLayout(preset_group_layout)
         general_layout.addWidget(preset_group)
+        
+        # Display Mode Group
+        display_group = QGroupBox("Display Settings")
+        display_group_layout = QHBoxLayout()
+        
+        # Display Mode Selection
+        self.display_mode = QComboBox()
+        self.display_mode.addItems(["Speech Bubble", "Chat Window", "No Display"])
+        display_group_layout.addWidget(QLabel("Display Mode:"))
+        display_group_layout.addWidget(self.display_mode)
+        
+        display_group.setLayout(display_group_layout)
+        general_layout.addWidget(display_group)
+        
         general_tab.setLayout(general_layout)
 
         # Voice Settings Tab
@@ -161,11 +176,19 @@ class SettingsDialog(QDialog):
         voice_type = self.config.get('voice_type', 'Azure Voice')
         voice_name = self.config.get('voice_name', 'en-US-AnaNeural')
         preset = self.config.get('personality_preset', 'ova')
+        display_mode = self.config.get('display_mode', 'bubble')
         
         # Set preset
         index = self.preset_selection.findText(preset)
         if index >= 0:
             self.preset_selection.setCurrentIndex(index)
+        
+        # Set display mode
+        mode_map = {'bubble': 'Speech Bubble', 'chat': 'Chat Window', 'none': 'No Display'}
+        mode_text = mode_map.get(display_mode, 'Speech Bubble')
+        index = self.display_mode.findText(mode_text)
+        if index >= 0:
+            self.display_mode.setCurrentIndex(index)
         
         # Set voice type
         index = self.voice_type.findText(voice_type)
@@ -179,7 +202,7 @@ class SettingsDialog(QDialog):
         index = self.voice_selection.findText(voice_name)
         if index >= 0:
             self.voice_selection.setCurrentIndex(index)
-        
+
     def onVoiceTypeChanged(self, voice_type):
         self.voice_selection.clear()
         if voice_type == "Azure Voice":
@@ -205,6 +228,10 @@ class SettingsDialog(QDialog):
         self.config['voice_name'] = self.voice_selection.currentText()
         self.config['sleep_timer'] = self.sleep_timer.value()
         self.config['personality_preset'] = self.preset_selection.currentText()
+        
+        # Map display mode text to config value
+        mode_map = {'Speech Bubble': 'bubble', 'Chat Window': 'chat', 'No Display': 'none'}
+        self.config['display_mode'] = mode_map.get(self.display_mode.currentText(), 'bubble')
         
         # Save config
         self.save_config()

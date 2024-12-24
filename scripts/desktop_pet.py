@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt, QTimer, QPoint, pyqtSignal, QObject, QSize
 from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform
 import threading
 from voice_assistant import VoiceAssistant
-from speech_bubble import SpeechBubbleWindow
+from display.display_manager import DisplayManager
 from text_to_speech import TTSEngine
 from settings_dialog import SettingsDialog
 import json
@@ -152,8 +152,10 @@ class OwlPet(QWidget):
 
     def setupComponents(self):
         """Setup additional components like TTS and voice assistant"""
-        # Create chat bubble
-        self.chat_bubble = ChatBubble(self)
+        # Initialize display manager
+        self.display_manager = DisplayManager(self)
+        display_mode = self.config.get('display_mode', 'bubble')
+        self.display_manager.initialize(display_mode)
         
         # Initialize TTS Engine
         self.tts_engine = TTSEngine()
@@ -186,9 +188,6 @@ class OwlPet(QWidget):
         # Create context menu
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.showContextMenu)
-        
-        # Initialize speech bubble window
-        self.speech_bubble = SpeechBubbleWindow()
         
         # Set initial position
         self.desktop = QApplication.desktop().screenGeometry()
@@ -423,16 +422,20 @@ class OwlPet(QWidget):
         if self.dragging:
             new_pos = self.mapToParent(event.pos() - self.offset)
             self.move(new_pos)
-            # Update speech bubble position if it's visible
-            if hasattr(self, 'speech_bubble') and self.speech_bubble.isVisible():
+            # Update display position if in bubble mode
+            if self.display_manager and self.display_manager.current_mode == "bubble":
                 self.update_speech_bubble_position()
         self.reset_idle_timer()
 
     def update_speech_bubble_position(self):
         """Update the speech bubble position based on current owl position"""
+        if not self.display_manager or not self.display_manager.get_speech_bubble():
+            return
+            
         # Get screen geometry and bubble size
         screen = QApplication.primaryScreen().geometry()
-        bubble_size = self.speech_bubble.size()
+        bubble = self.display_manager.get_speech_bubble()
+        bubble_size = bubble.size()
         owl_pos = self.pos()
         owl_size = self.size()
         
@@ -456,7 +459,7 @@ class OwlPet(QWidget):
                 bubble_x + bubble_size.width() <= screen.width() and 
                 bubble_y + bubble_size.height() <= screen.height()):
                 # Found a good position
-                self.speech_bubble.showAtPosition(bubble_x, bubble_y)
+                bubble.move(bubble_x, bubble_y)
                 return
         
         # If no perfect position found, use centered position above owl
@@ -467,20 +470,18 @@ class OwlPet(QWidget):
         fallback_x = max(0, min(fallback_x, screen.width() - bubble_size.width()))
         fallback_y = max(0, min(fallback_y, screen.height() - bubble_size.height()))
         
-        self.speech_bubble.showAtPosition(fallback_x, fallback_y)
-
+        bubble.move(fallback_x, fallback_y)
+    
     def show_speech_bubble(self, text):
-        """Show a speech bubble with the response"""
+        """Show a message in the current display mode"""
         # Get the last recognized text from the voice assistant
         last_text = ""
         if hasattr(self, 'voice_assistant') and self.voice_assistant:
             last_text = self.voice_assistant.last_text
         
-        # Update speech bubble text
-        self.speech_bubble.setText(text, last_text)
-        
-        # Update position
-        self.update_speech_bubble_position()
+        # Show message using display manager
+        if self.display_manager:
+            self.display_manager.show_message(text, last_text)
     
     def handle_response_thread(self, response):
         """Handle the response from a background thread"""
@@ -501,7 +502,7 @@ class OwlPet(QWidget):
     def handle_response_gui(self, response):
         """Handle the response in the GUI thread"""
         try:
-            # Show the speech bubble with both question and response
+            # Show the message in the current display mode
             self.show_speech_bubble(response)
             # Change from thinking to speaking
             self.setState("speaking")
@@ -543,7 +544,6 @@ class OwlPet(QWidget):
         """Handle completion of speaking in GUI thread"""
         if self.current_state == "speaking":
             self.setState("idle")
-            self.speech_bubble.hide()
             self.reset_idle_timer()  # Reset sleep timer when done speaking
 
     def start_speaking(self):
@@ -677,6 +677,11 @@ class OwlPet(QWidget):
             self.idle_timeout = self.config.get('sleep_timer', 30)
             logger.info(f"Updated sleep timer to {self.idle_timeout}")
             
+            # Update display mode
+            if self.display_manager:
+                display_mode = self.config.get('display_mode', 'bubble')
+                self.display_manager.initialize(display_mode)
+            
             # Update voice assistant with new config
             if hasattr(self, 'voice_assistant') and self.voice_assistant:
                 self.voice_assistant.reload_config()
@@ -688,7 +693,8 @@ class OwlPet(QWidget):
             'voice_type': 'Azure Voice',
             'voice_name': 'en-US-AnaNeural',
             'sleep_timer': 30,
-            'personality_preset': 'ova'
+            'personality_preset': 'ova',
+            'display_mode': 'bubble'
         }
         
         try:

@@ -120,7 +120,16 @@ class VoiceAssistant:
         
         # List of wake word variations
         wake_words = [
-            "hey ova", "hey nova", "hey bova", "hey over", "jehovah", "hanover", "hangover", "hey eva"
+            "hey ova", 
+            "hey nova", 
+            "hey bova", 
+            "hey over", 
+            "jehovah", 
+            "hanover", 
+            "hangover", 
+            "hey eva",
+            "hey oppa",
+            "hey google"
         ]
         
         with self.mic as source:
