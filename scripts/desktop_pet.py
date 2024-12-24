@@ -59,6 +59,8 @@ class OwlPet(QWidget):
     start_thinking_signal = pyqtSignal()
     start_speaking_signal = pyqtSignal()
     stop_speaking_signal = pyqtSignal()
+    start_listening_signal = pyqtSignal()
+    stop_listening_signal = pyqtSignal()
     
     def __init__(self):
         super().__init__()
@@ -106,6 +108,7 @@ class OwlPet(QWidget):
             "flying": ["landing"],      # Flying loops until landing triggered
             "landing": ["idle"],        # Landing transitions to idle
             "look_around": ["idle"],    # Look around transitions to idle
+            "listening": ["thinking", "idle"],  # Listening transitions to thinking on command or idle on timeout
             "thinking": ["speaking"],   # Thinking transitions to speaking when response ready
             "speaking": ["idle"],       # Speaking transitions to idle when done
             "dance": ["idle"],          # Dance transitions to idle after loops complete
@@ -117,7 +120,7 @@ class OwlPet(QWidget):
         }
         
         # States that should loop
-        self.looping_states = {"flying", "thinking", "speaking", "dance", "held", "asleep"}
+        self.looping_states = {"flying", "listening", "thinking", "speaking", "dance", "held", "asleep"}
         
         # Initialize UI and animations
         self.initUI()
@@ -166,6 +169,8 @@ class OwlPet(QWidget):
         self.start_thinking_signal.connect(self.start_thinking)
         self.start_speaking_signal.connect(self.start_speaking)
         self.stop_speaking_signal.connect(self.on_speak_done)
+        self.start_listening_signal.connect(self.start_listening)
+        self.stop_listening_signal.connect(self.stop_listening)
         
         # Initialize response handler
         self.response_handler = ResponseHandler()
@@ -234,7 +239,7 @@ class OwlPet(QWidget):
         # Load all animations
         self.animations = {}
         for anim_dir in ['idle', 'flying', 'landing', 'take_flight', 'look_around', 'thinking', 
-                        'speaking', 'dance', 'pickup', 'falling_asleep', 'asleep', 'waking_up']:
+                        'speaking', 'dance', 'pickup', 'falling_asleep', 'asleep', 'waking_up', 'listening']:
             anim_path = os.path.join(assets_dir, anim_dir)
             if os.path.exists(anim_path):
                 frames = sorted(glob.glob(os.path.join(anim_path, '*.png')))
@@ -360,6 +365,8 @@ class OwlPet(QWidget):
 
     def setState(self, new_state):
         """Change the current state and reset animation"""
+        print(f"Changing state from {self.current_state} to {new_state}")
+        
         # Store previous state
         self.previous_state = self.current_state
         
@@ -367,8 +374,14 @@ class OwlPet(QWidget):
         self.current_state = new_state
         self.frame_index = 0
         
-        # Reset animation timer
-        self.animation_timer.setInterval(self.frame_delay)
+        # Stop current animation timer if running
+        if hasattr(self, 'animation_timer') and self.animation_timer.isActive():
+            self.animation_timer.stop()
+        
+        # Reset and start animation timer
+        self.animation_timer = QTimer(self)
+        self.animation_timer.timeout.connect(self.updateAnimation)
+        self.animation_timer.start(self.frame_delay)
         
         # If transitioning to idle after landing, keep the last facing direction
         if new_state == "idle" and self.previous_state == "landing":
@@ -512,7 +525,11 @@ class OwlPet(QWidget):
                 self.wake_up()
             
             # Handle different response types
-            if response == "START_THINKING":
+            if response == "START_LISTENING":
+                self.start_listening_signal.emit()
+            elif response == "STOP_LISTENING":
+                self.stop_listening_signal.emit()
+            elif response == "START_THINKING":
                 self.start_thinking_signal.emit()
             else:
                 # Emit signal to handle response in GUI thread
@@ -770,6 +787,19 @@ class OwlPet(QWidget):
         current_frame = self.get_current_frame()
         if current_frame:
             painter.drawPixmap(self.rect(), current_frame)
+
+    def start_listening(self):
+        """Start listening animation in GUI thread"""
+        print("Starting listening animation")
+        self.setState("listening")
+        self.reset_idle_timer()
+
+    def stop_listening(self):
+        """Stop listening animation in GUI thread"""
+        print("Stopping listening animation")
+        if self.current_state == "listening":
+            self.setState("idle")
+            self.reset_idle_timer()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

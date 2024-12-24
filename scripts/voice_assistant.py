@@ -5,6 +5,8 @@ from ollama import Client
 import os
 import json
 import logging
+import pygame
+from playsound import playsound
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -17,31 +19,38 @@ class VoiceAssistant:
         self.is_listening = False
         self.client = Client(host='http://localhost:11434')
         self.last_text = ""  # Store the last recognized text
-        self.mic = None  # Will store microphone instance
+        self.mic = None  # Microphone instance
         self.listen_thread = None
         self.direct_listen_mode = False
         self.direct_listen_timer = None
+        self.no_response_timer = None
+        
+        # Sound file paths and initialization
+        self.activation_sound = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'HeyOva.mp3')
+        self.no_answer_sound = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'NoAnswer.mp3')
+        
+        # Load sounds
+        pygame.mixer.init()
+        try:
+            self.activation_sound_obj = pygame.mixer.Sound(self.activation_sound)
+            self.no_answer_sound_obj = pygame.mixer.Sound(self.no_answer_sound)
+        except Exception as e:
+            print(f"Error loading sounds: {e}")
+            self.activation_sound_obj = None
+            self.no_answer_sound_obj = None
         
         # Load config
         self.config = self.load_config()
         logger.info(f"Voice assistant initialized with config: {self.config}")
         
-        # Optimize recognition settings for better performance
-        self.recognizer.dynamic_energy_threshold = False  # Use fixed energy threshold
-        self.recognizer.energy_threshold = 1000  # Higher threshold to reduce false activations
-        self.recognizer.pause_threshold = 1.5  # Longer pause to allow for natural speech
-        self.recognizer.phrase_threshold = 1  # More lenient phrase detection
-        self.recognizer.non_speaking_duration = 1  # Longer duration for sentence completion
-        self.recognizer.operation_timeout = None  # No timeout for Google API
-        
-        # Test if Ollama is running and check for llama3.2
-        try:
-            models = self.client.list()
-            if not any(model['name'] == 'llama3.2:latest' for model in models['models']):
-                print("Warning: llama3.2 model not found. Please run: ollama pull llama3.2")
-        except Exception as e:
-            print("Error connecting to Ollama. Make sure it's running:", e)
-    
+        # Optimize recognition settings for better wake word detection
+        self.recognizer.dynamic_energy_threshold = False
+        self.recognizer.energy_threshold = 800  # More sensitive for wake word
+        self.recognizer.pause_threshold = 0.8  # Balanced pause threshold
+        self.recognizer.phrase_threshold = 0.3  # More sensitive phrase detection
+        self.recognizer.non_speaking_duration = 0.5  # Shorter non-speaking duration
+        self.recognizer.operation_timeout = None  # No timeout
+
     def load_config(self):
         """Load configuration from config.json"""
         config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
@@ -64,28 +73,156 @@ class VoiceAssistant:
         """Start continuous listening in a separate thread"""
         if not self.is_listening:
             self.is_listening = True
+            
             # Initialize microphone if not already done
             if self.mic is None:
-                self.mic = sr.Microphone()
-                with self.mic as source:
-                    print("Adjusting for ambient noise...")
-                    self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                try:
+                    self.mic = sr.Microphone()
+                    with self.mic as source:
+                        print("Adjusting for ambient noise...")
+                        self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                except Exception as e:
+                    print(f"Error initializing microphone: {e}")
+                    return
             
             # Start listening thread
             self.listen_thread = threading.Thread(target=self._continuous_listen, daemon=True)
             self.listen_thread.start()
-    
+
+    def _continuous_listen(self):
+        """Continuous listening function running in separate thread"""
+        print("Starting continuous listening...")
+        
+        # List of wake word variations
+        wake_words = [
+            "hey ova", "hey nova", "hey bova", "hey over", 
+            "jehovah", "hanover", "hangover", "hey eva",
+            "hey oppa", "hey google", "hey opa"
+        ]
+        
+        with self.mic as source:
+            while self.is_listening:
+                try:
+                    # Use shorter phrase time limit for wake word detection
+                    audio = self.recognizer.listen(source, timeout=None, phrase_time_limit=2)
+                    try:
+                        text = self.recognizer.recognize_google(audio).lower()
+                        print("Heard:", text)
+                        
+                        # Check for wake word
+                        detected_wake_word = None
+                        for wake_word in wake_words:
+                            if wake_word in text:
+                                detected_wake_word = wake_word
+                                break
+                        
+                        if detected_wake_word or self.direct_listen_mode:
+                            # Play activation sound immediately
+                            if detected_wake_word and self.activation_sound_obj:
+                                self.activation_sound_obj.play()
+                            
+                            # Start listening animation
+                            if self.callback:
+                                self.callback("START_LISTENING")
+                            
+                            # Flag to track if we got a response
+                            got_response = False
+                            
+                            # Check if there's a command after the wake word
+                            command_after_wake = ""
+                            if detected_wake_word:
+                                # Remove wake word and check for remaining text
+                                command_after_wake = text.replace(detected_wake_word, "").strip()
+                            
+                            if command_after_wake:
+                                # Process immediate command
+                                got_response = True
+                                if self.callback:
+                                    self.callback("START_THINKING")
+                                self._generate_response(command_after_wake)
+                            else:
+                                # Start no-response timer
+                                if self.no_response_timer:
+                                    self.no_response_timer.cancel()
+                                
+                                def handle_no_response():
+                                    nonlocal got_response
+                                    if not got_response:
+                                        if self.no_answer_sound_obj:
+                                            self.no_answer_sound_obj.play()
+                                        if self.callback:
+                                            self.callback("STOP_LISTENING")
+                                        got_response = True  # Set flag to break command listening
+                                
+                                self.no_response_timer = threading.Timer(5.0, handle_no_response)
+                                self.no_response_timer.start()
+                                
+                                # Listen for the command with longer phrase time limit
+                                try:
+                                    # Small delay to let the activation sound play
+                                    time.sleep(0.1)
+                                    
+                                    # Temporarily adjust settings for command recognition
+                                    self.recognizer.pause_threshold = 1.5
+                                    self.recognizer.phrase_threshold = 0.8
+                                    
+                                    # Listen for command with timeout
+                                    start_time = time.time()
+                                    while not got_response and time.time() - start_time < 5:  # 5 second maximum wait
+                                        try:
+                                            command_audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=10)
+                                            command_text = self.recognizer.recognize_google(command_audio).lower()
+                                            print("Command:", command_text)
+                                            
+                                            # Cancel no-response timer since we got a response
+                                            if self.no_response_timer:
+                                                self.no_response_timer.cancel()
+                                            
+                                            got_response = True
+                                            
+                                            # Process the command
+                                            if command_text:
+                                                if self.callback:
+                                                    self.callback("START_THINKING")
+                                                self._generate_response(command_text)
+                                            break
+                                            
+                                        except sr.WaitTimeoutError:
+                                            continue  # Keep trying until timeout or response
+                                        except sr.UnknownValueError:
+                                            continue  # Keep trying if speech wasn't understood
+                                    
+                                except sr.RequestError as e:
+                                    print(f"Could not request results for command: {e}")
+                                finally:
+                                    # Reset recognition settings for wake word detection
+                                    self.recognizer.pause_threshold = 0.8
+                                    self.recognizer.phrase_threshold = 0.3
+                                    if self.no_response_timer:
+                                        self.no_response_timer.cancel()
+                    
+                    except sr.UnknownValueError:
+                        pass  # Silent failure for unrecognized speech
+                    except sr.RequestError as e:
+                        print(f"Could not request results: {e}")
+                        time.sleep(1)
+                        
+                except Exception as e:
+                    if self.is_listening:
+                        print(f"Error in continuous listening: {e}")
+                        time.sleep(0.5)
+
     def stop_listening(self):
         """Stop the listening thread"""
         self.is_listening = False
         if self.listen_thread:
             self.listen_thread.join(timeout=1)
             self.listen_thread = None
-    
+
     def start_direct_listening(self, timeout=10):
         """Start listening directly without wake word for a specified duration"""
         self.direct_listen_mode = True
-        self.callback("START_THINKING")  # Trigger thinking animation
+        self.callback("START_LISTENING")  # Trigger listening animation
         
         def timeout_handler():
             self.direct_listen_mode = False
@@ -114,71 +251,18 @@ class VoiceAssistant:
             print(f"Could not request results; {e}")
             return None
 
-    def _continuous_listen(self):
-        """Continuous listening function running in separate thread"""
-        print("Starting continuous listening...")
-        
-        # List of wake word variations
-        wake_words = [
-            "hey ova", 
-            "hey nova", 
-            "hey bova", 
-            "hey over", 
-            "jehovah", 
-            "hanover", 
-            "hangover", 
-            "hey eva",
-            "hey oppa",
-            "hey google",
-            "hey opa"
-        ]
-        
-        with self.mic as source:
-            while self.is_listening:
-                try:
-                    # Use non-blocking listen
-                    audio = self.recognizer.listen(source, timeout=None, phrase_time_limit=10)
-                    
-                    try:
-                        text = self.recognizer.recognize_google(audio).lower()
-                        print("Recognized:", text)
-                        
-                        # Check for any wake word variation
-                        detected_wake_word = None
-                        for wake_word in wake_words:
-                            if wake_word in text:
-                                detected_wake_word = wake_word
-                                break
-                        
-                        if detected_wake_word or self.direct_listen_mode:
-                            # Start thinking animation
-                            if self.callback:
-                                self.callback("START_THINKING")
-                            
-                            # Remove the detected wake word from the text
-                            if detected_wake_word:
-                                clean_text = text.replace(detected_wake_word, "").strip()
-                            else:
-                                clean_text = text
-                            # Store the cleaned text
-                            self.last_text = clean_text
-                            if clean_text:  # Only process if there's remaining text
-                                self._generate_response(clean_text)
-                            else:
-                                if self.callback:
-                                    self.callback("Yes, Miss Kathy? How can I help you and your preschool class today?")
-                    except sr.UnknownValueError:
-                        # Silent failure for unrecognized speech
-                        pass
-                    except sr.RequestError as e:
-                        print(f"Could not request results: {e}")
-                        time.sleep(1)
-                        
-                except Exception as e:
-                    if self.is_listening:  # Only print error if we're supposed to be listening
-                        print(f"Error in continuous listening: {e}")
-                        time.sleep(0.5)
-    
+    def handle_no_response(self):
+        """Handle when no response is received after wake word"""
+        try:
+            if self.no_answer_sound_obj:
+                self.no_answer_sound_obj.play()
+        except Exception as e:
+            print(f"Error playing no-answer sound: {e}")
+        finally:
+            # Reset direct listen mode if active
+            if self.direct_listen_mode:
+                self.stop_direct_listening()
+
     def _generate_response(self, text):
         """Generate a response using Ollama with llama3.2"""
         try:
@@ -216,3 +300,12 @@ class VoiceAssistant:
             print(f"Error generating response: {e}")
             if self.callback:
                 self.callback("I'm sorry Miss Kathy, my little owl brain is having trouble thinking right now. Could you please make sure my friend Ollama is running?")
+
+    def test_ollama(self):
+        """Test if Ollama is running and check for llama3.2"""
+        try:
+            models = self.client.list()
+            if not any(model['name'] == 'llama3.2:latest' for model in models['models']):
+                print("Warning: llama3.2 model not found. Please run: ollama pull llama3.2")
+        except Exception as e:
+            print("Error connecting to Ollama. Make sure it's running:", e)
