@@ -439,38 +439,72 @@ class OwlPet(QWidget):
         owl_pos = self.pos()
         owl_size = self.size()
         
-        # Default position: top-right of owl
+        # Calculate center points
+        owl_center_x = owl_pos.x() + owl_size.width() // 2
+        owl_center_y = owl_pos.y() + owl_size.height() // 2
+        
+        # Define all possible positions (8 positions around Ova)
         positions = [
-            # Position 1: Top-right of owl (default)
-            (owl_pos.x() + owl_size.width(), owl_pos.y() - bubble_size.height()),
-            # Position 2: Top-left of owl
-            (owl_pos.x() - bubble_size.width(), owl_pos.y() - bubble_size.height()),
-            # Position 3: Bottom-right of owl
-            (owl_pos.x() + owl_size.width(), owl_pos.y() + owl_size.height()),
-            # Position 4: Bottom-left of owl
-            (owl_pos.x() - bubble_size.width(), owl_pos.y() + owl_size.height())
+            # North (top center)
+            (owl_center_x - bubble_size.width() // 2, 
+             owl_pos.y() - bubble_size.height()),
+            
+            # Northeast (top right)
+            (owl_pos.x() + owl_size.width(), 
+             owl_pos.y() - bubble_size.height()),
+            
+            # East (right center)
+            (owl_pos.x() + owl_size.width(),
+             owl_center_y - bubble_size.height() // 2),
+            
+            # Southeast (bottom right)
+            (owl_pos.x() + owl_size.width(),
+             owl_pos.y() + owl_size.height()),
+            
+            # South (bottom center)
+            (owl_center_x - bubble_size.width() // 2,
+             owl_pos.y() + owl_size.height()),
+            
+            # Southwest (bottom left)
+            (owl_pos.x() - bubble_size.width(),
+             owl_pos.y() + owl_size.height()),
+            
+            # West (left center)
+            (owl_pos.x() - bubble_size.width(),
+             owl_center_y - bubble_size.height() // 2),
+            
+            # Northwest (top left)
+            (owl_pos.x() - bubble_size.width(),
+             owl_pos.y() - bubble_size.height())
         ]
         
-        # Find the best position that keeps the bubble on screen
-        for bubble_x, bubble_y in positions:
-            # Check if bubble fits at this position
-            if (bubble_x >= 0 and 
-                bubble_y >= 0 and 
-                bubble_x + bubble_size.width() <= screen.width() and 
-                bubble_y + bubble_size.height() <= screen.height()):
-                # Found a good position
-                bubble.move(bubble_x, bubble_y)
-                return
+        # Find best position that keeps bubble on screen
+        best_pos = None
+        min_overflow = float('inf')
         
-        # If no perfect position found, use centered position above owl
-        fallback_x = owl_pos.x() + (owl_size.width() - bubble_size.width()) // 2
-        fallback_y = owl_pos.y() - bubble_size.height()
+        for x, y in positions:
+            # Calculate how much the bubble would overflow screen bounds
+            overflow = max(0, -x) + max(0, -y) + \
+                      max(0, x + bubble_size.width() - screen.width()) + \
+                      max(0, y + bubble_size.height() - screen.height())
+            
+            # If position is completely on screen, use it immediately
+            if overflow == 0:
+                best_pos = (x, y)
+                break
+            
+            # Otherwise, keep track of position with minimum overflow
+            if overflow < min_overflow:
+                min_overflow = overflow
+                best_pos = (x, y)
         
-        # Ensure bubble stays within screen bounds
-        fallback_x = max(0, min(fallback_x, screen.width() - bubble_size.width()))
-        fallback_y = max(0, min(fallback_y, screen.height() - bubble_size.height()))
-        
-        bubble.move(fallback_x, fallback_y)
+        # If no perfect position found, adjust the best position to fit on screen
+        if best_pos:
+            x, y = best_pos
+            # Constrain to screen bounds
+            x = max(0, min(x, screen.width() - bubble_size.width()))
+            y = max(0, min(y, screen.height() - bubble_size.height()))
+            bubble.move(int(x), int(y))
     
     def show_speech_bubble(self, text):
         """Show a message in the current display mode"""

@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QFrame, QWidget
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QLabel, QVBoxLayout, QFrame, QWidget, QSizePolicy
+from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QFontDatabase, QFont
 import logging
 
@@ -26,6 +26,9 @@ class SpeechBubble(QWidget):
         self.hide_timer = None
         
     def setup_ui(self):
+        # Set size policy
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        
         # Create main layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -39,12 +42,13 @@ class SpeechBubble(QWidget):
                 border-radius: 15px;
             }
         """)
+        self.content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         layout.addWidget(self.content)
         
         # Create content layout
         content_layout = QVBoxLayout(self.content)
-        content_layout.setContentsMargins(10, 10, 10, 10)
-        content_layout.setSpacing(8)
+        content_layout.setContentsMargins(15, 10, 15, 10)
+        content_layout.setSpacing(4)
         
         # Create labels for user text and response
         self.user_label = QLabel()
@@ -55,18 +59,25 @@ class SpeechBubble(QWidget):
                 font-size: 11px;
                 font-style: italic;
                 background: transparent;
-                padding: -14px 0;
                 border: none;
+                padding: 0;
+                margin: 0;
+                max-height: 25px;
             }}
         """)
         self.user_label.setWordWrap(True)
         self.user_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.user_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         content_layout.addWidget(self.user_label)
         
         # Create divider
         self.divider = QFrame()
         self.divider.setFrameShape(QFrame.HLine)
-        self.divider.setStyleSheet("background-color: #ccc;")
+        self.divider.setStyleSheet("""
+            background-color: #ccc;
+            margin: 5px 0;
+        """)
+        self.divider.setFixedHeight(1)
         content_layout.addWidget(self.divider)
         
         # Create response label
@@ -78,17 +89,25 @@ class SpeechBubble(QWidget):
                 font-size: 14px;
                 line-height: 1.4;
                 background: transparent;
-                padding: 0;
                 border: none;
+                padding: 0;
+                margin: 0;
             }}
         """)
         self.response_label.setWordWrap(True)
         self.response_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.response_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         content_layout.addWidget(self.response_label)
         
         # Set size constraints
-        self.setMinimumWidth(250)
-        self.setMaximumWidth(450)
+        self.setMinimumSize(QSize(250, 100))
+        self.setMaximumSize(QSize(1200, 1200))
+        
+    def sizeHint(self):
+        """Return the recommended size for the widget"""
+        width = max(250, min(self.content.sizeHint().width() + 30, 1200))
+        height = max(100, min(self.content.sizeHint().height() + 30, 1200))
+        return QSize(width, height)
         
     def setText(self, text, last_text=""):
         """Set the text of the speech bubble"""
@@ -104,8 +123,9 @@ class SpeechBubble(QWidget):
         # Update response text
         self.response_label.setText(text)
         
-        # Adjust size
-        self.adjustSize()
+        # Update size
+        hint = self.sizeHint()
+        self.resize(hint)
         
     def showMessage(self, text, duration=5000):
         """Show the speech bubble with text for a duration"""
