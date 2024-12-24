@@ -2,6 +2,7 @@ import speech_recognition as sr
 import threading
 import time
 from ollama import Client
+import os
 
 class VoiceAssistant:
     def __init__(self, callback=None):
@@ -12,19 +13,21 @@ class VoiceAssistant:
         self.last_text = ""  # Store the last recognized text
         self.mic = None  # Will store microphone instance
         self.listen_thread = None
+        self.direct_listen_mode = False
+        self.direct_listen_timer = None
         
         # Optimize recognition settings for better performance
         self.recognizer.dynamic_energy_threshold = False  # Use fixed energy threshold
         self.recognizer.energy_threshold = 2000  # Higher threshold to reduce false activations
-        self.recognizer.pause_threshold = 1  # Longer pause to allow for natural speech
-        self.recognizer.phrase_threshold = 0.5  # More lenient phrase detection
-        self.recognizer.non_speaking_duration = 0.5  # Longer duration for sentence completion
+        self.recognizer.pause_threshold = 1.5  # Longer pause to allow for natural speech
+        self.recognizer.phrase_threshold = 1  # More lenient phrase detection
+        self.recognizer.non_speaking_duration = 1  # Longer duration for sentence completion
         self.recognizer.operation_timeout = None  # No timeout for Google API
         
         # Test if Ollama is running and check for llama3.2
         try:
             models = self.client.list()
-            if not any(model['name'] == 'llama3.2' for model in models['models']):
+            if not any(model['name'] == 'llama3.2:latest' for model in models['models']):
                 print("Warning: llama3.2 model not found. Please run: ollama pull llama3.2")
         except Exception as e:
             print("Error connecting to Ollama. Make sure it's running:", e)
@@ -51,6 +54,38 @@ class VoiceAssistant:
             self.listen_thread.join(timeout=1)
             self.listen_thread = None
     
+    def start_direct_listening(self, timeout=10):
+        """Start listening directly without wake word for a specified duration"""
+        self.direct_listen_mode = True
+        self.callback("START_THINKING")  # Trigger thinking animation
+        
+        def timeout_handler():
+            self.direct_listen_mode = False
+            self.direct_listen_timer = None
+        
+        # Start timeout timer
+        self.direct_listen_timer = threading.Timer(timeout, timeout_handler)
+        self.direct_listen_timer.start()
+
+    def stop_direct_listening(self):
+        """Stop direct listening mode"""
+        self.direct_listen_mode = False
+        if self.direct_listen_timer:
+            self.direct_listen_timer.cancel()
+            self.direct_listen_timer = None
+
+    def process_audio(self, audio_data):
+        """Process audio data and return transcribed text"""
+        try:
+            text = self.recognizer.recognize_google(audio_data).lower()
+            self.last_text = text
+            return text
+        except sr.UnknownValueError:
+            return None
+        except sr.RequestError as e:
+            print(f"Could not request results; {e}")
+            return None
+
     def _continuous_listen(self):
         """Continuous listening function running in separate thread"""
         print("Starting continuous listening...")
@@ -77,13 +112,16 @@ class VoiceAssistant:
                                 detected_wake_word = wake_word
                                 break
                         
-                        if detected_wake_word:
+                        if detected_wake_word or self.direct_listen_mode:
                             # Start thinking animation
                             if self.callback:
                                 self.callback("START_THINKING")
                             
                             # Remove the detected wake word from the text
-                            clean_text = text.replace(detected_wake_word, "").strip()
+                            if detected_wake_word:
+                                clean_text = text.replace(detected_wake_word, "").strip()
+                            else:
+                                clean_text = text
                             # Store the cleaned text
                             self.last_text = clean_text
                             if clean_text:  # Only process if there's remaining text
@@ -109,7 +147,7 @@ class VoiceAssistant:
             print("Generating response for:", text)
             
             # Generate response using llama3.2 with baby great horned owl personality
-            response = self.client.chat(model='llama3.2', messages=[{
+            response = self.client.chat(model='llama3.2:latest', messages=[{
                 'role': 'system',
                 'content': '''You are Ova (Owl Virtual Assistant), a baby owl assistant who acts like a helpful and friendly child. Keep your responses cheerful, simple, succinct, and friendly.
                 

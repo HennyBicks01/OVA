@@ -79,6 +79,9 @@ class OwlPet(QWidget):
         # Load config
         self.config = load_config()
         
+        # Flag for direct listening mode
+        self.waiting_for_response = False
+        
         # Movement and position variables
         self.dragging = False
         self.offset = QPoint()
@@ -499,8 +502,29 @@ class OwlPet(QWidget):
             self.setState("speaking")
             # Speak the response
             self.speak_response(response)
+            
+            # Check if response ends with a question mark
+            if response.strip().endswith('?') and not self.waiting_for_response:
+                self.waiting_for_response = True
+                self.tts_engine.speak_finished.connect(self.start_direct_listening)
+                
         except Exception as e:
             print(f"Error handling response: {e}")
+    
+    def start_direct_listening(self):
+        """Start direct listening mode after speech is finished"""
+        try:
+            # Disconnect the signal to prevent multiple connections
+            self.tts_engine.speak_finished.disconnect(self.start_direct_listening)
+            
+            if hasattr(self, 'voice_assistant') and self.voice_assistant:
+                self.voice_assistant.start_direct_listening(timeout=10)
+            
+            self.waiting_for_response = False
+            
+        except Exception as e:
+            print(f"Error in start_direct_listening: {e}")
+            self.waiting_for_response = False
     
     def start_thinking(self):
         """Start thinking animation when wake word detected"""
