@@ -11,9 +11,14 @@ from voice_assistant import VoiceAssistant
 from speech_bubble import SpeechBubbleWindow
 from text_to_speech import TTSEngine
 from settings_dialog import SettingsDialog
-from config import load_config, save_config
+import json
 import pyttsx3
 import time
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class ChatBubble(QLabel):
     def __init__(self, parent=None):
@@ -77,7 +82,7 @@ class OwlPet(QWidget):
         self.scale_factor = 3  # Scale sprites 3x
         
         # Load config
-        self.config = load_config()
+        self.config = self.load_config()
         
         # Flag for direct listening mode
         self.waiting_for_response = False
@@ -658,14 +663,43 @@ class OwlPet(QWidget):
         """Show settings dialog"""
         dialog = SettingsDialog(self)
         if dialog.exec_() == QDialog.Accepted:
+            logger.info("Settings dialog accepted, reloading config")
+            # Reload config
+            self.config = self.load_config()
+            logger.info(f"Reloaded config: {self.config}")
+            
             # Update voice if changed
             selected_voice = dialog.getSelectedVoice()
             if selected_voice:
                 self.tts_engine.change_voice(selected_voice)
+                
+            # Update sleep timer
+            self.idle_timeout = self.config.get('sleep_timer', 30)
+            logger.info(f"Updated sleep timer to {self.idle_timeout}")
             
-            # Reload config to get new sleep timer
-            self.config = load_config()
+            # Update voice assistant with new config
+            if hasattr(self, 'voice_assistant') and self.voice_assistant:
+                self.voice_assistant.reload_config()
     
+    def load_config(self):
+        """Load configuration from config.json"""
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+        default_config = {
+            'voice_type': 'Azure Voice',
+            'voice_name': 'en-US-AnaNeural',
+            'sleep_timer': 30,
+            'personality_preset': 'ova'
+        }
+        
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Error loading config: {e}")
+        
+        return default_config
+
     def check_idle(self):
         """Check if Ova has been idle for too long"""
         # Don't start sleeping if already asleep or in certain states

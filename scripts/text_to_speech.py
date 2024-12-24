@@ -4,7 +4,12 @@ import azure.cognitiveservices.speech as speechsdk
 import pyttsx3
 from PyQt5.QtCore import QObject, pyqtSignal
 import threading
-from config import load_config, save_config
+import json
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -20,10 +25,31 @@ class TTSEngine(QObject):
         self.speech_synthesizer = None
         self.windows_engine = None
         self.use_fallback = False
-        self.config = load_config()
+        self.config = self.load_config()
         self.is_speaking = False
         self.setup_engine()
     
+    def load_config(self):
+        """Load configuration from config.json"""
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+        default_config = {
+            'voice_type': 'Azure Voice',
+            'voice_name': 'en-US-AnaNeural',
+            'sleep_timer': 30,
+            'personality_preset': 'ova'
+        }
+        
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    loaded_config = json.load(f)
+                    logger.info(f"TTS loaded config: {loaded_config}")
+                    return loaded_config
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
+        
+        return default_config.copy()
+
     def setup_engine(self):
         """Setup Azure text-to-speech engine with fallback to Windows voices"""
         try:
@@ -108,9 +134,10 @@ class TTSEngine(QObject):
                 )
                 self.use_fallback = False
                 
-                # Update config
+                # Update local config only
                 self.config['voice_type'] = 'Azure Voice'
                 self.config['voice_name'] = voice_name
+                logger.info(f"Changed to Azure voice: {voice_name}")
                 
             else:  # Windows voice
                 if not self.windows_engine:
@@ -118,16 +145,16 @@ class TTSEngine(QObject):
                 self.windows_engine.setProperty('voice', voice_name)
                 self.use_fallback = True
                 
-                # Update config
+                # Update local config only
                 self.config['voice_type'] = 'Windows Voice'
                 self.config['voice_name'] = voice_name
-            
-            # Save the updated config
-            save_config(self.config)
+                logger.info(f"Changed to Windows voice: {voice_name}")
             
         except Exception as e:
             self.use_fallback = True
-            self.speak_error.emit(f"Failed to set voice, falling back to Windows: {str(e)}")
+            error_msg = f"Failed to set voice, falling back to Windows: {str(e)}"
+            logger.error(error_msg)
+            self.speak_error.emit(error_msg)
             
             # Try to set up Windows fallback if not already done
             if not self.windows_engine:
@@ -137,7 +164,9 @@ class TTSEngine(QObject):
                     if voices:
                         self.windows_engine.setProperty('voice', voices[0].id)
                 except Exception as we:
-                    self.speak_error.emit(f"Failed to set up Windows fallback: {str(we)}")
+                    error_msg = f"Failed to set up Windows fallback: {str(we)}"
+                    logger.error(error_msg)
+                    self.speak_error.emit(error_msg)
     
     def speak(self, text):
         """Speak text using Azure TTS with fallback to Windows voices"""

@@ -3,6 +3,12 @@ import threading
 import time
 from ollama import Client
 import os
+import json
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class VoiceAssistant:
     def __init__(self, callback=None):
@@ -15,6 +21,10 @@ class VoiceAssistant:
         self.listen_thread = None
         self.direct_listen_mode = False
         self.direct_listen_timer = None
+        
+        # Load config
+        self.config = self.load_config()
+        logger.info(f"Voice assistant initialized with config: {self.config}")
         
         # Optimize recognition settings for better performance
         self.recognizer.dynamic_energy_threshold = False  # Use fixed energy threshold
@@ -32,6 +42,24 @@ class VoiceAssistant:
         except Exception as e:
             print("Error connecting to Ollama. Make sure it's running:", e)
     
+    def load_config(self):
+        """Load configuration from config.json"""
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    logger.info(f"Loaded config: {config}")
+                    return config
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
+        return {'personality_preset': 'ova'}
+    
+    def reload_config(self):
+        """Reload configuration"""
+        self.config = self.load_config()
+        logger.info(f"Reloaded voice assistant config: {self.config}")
+
     def start_listening(self):
         """Start continuous listening in a separate thread"""
         if not self.is_listening:
@@ -146,38 +174,24 @@ class VoiceAssistant:
         try:
             print("Generating response for:", text)
             
-            # Generate response using llama3.2 with baby great horned owl personality
+            # Load current config to get preset
+            preset = self.config.get('personality_preset', 'ova')
+            logger.info(f"Using personality preset: {preset}")
+            
+            # Load system prompt from preset file
+            preset_file = os.path.join(os.path.dirname(__file__), 'presets', f'{preset}.txt')
+            system_prompt = ""
+            if os.path.exists(preset_file):
+                with open(preset_file, 'r') as f:
+                    system_prompt = f.read()
+                logger.info(f"Loaded system prompt from {preset_file}")
+            else:
+                logger.warning(f"Warning: Preset file {preset_file} not found")
+            
+            # Generate response using llama3.2 with selected preset
             response = self.client.chat(model='llama3.2:latest', messages=[{
                 'role': 'system',
-                'content': '''You are Ova (Owl Virtual Assistant), a baby owl assistant who acts like a helpful and friendly child. Keep your responses cheerful, simple, succinct, and friendly.
-                
-                Important rules:
-                - ALWAYS try to be very succinct and friendly.
-                - NEVER use asterisks or describe actions (like *flaps wings* or *blinks* or *giggle*)
-                - NEVER use emojis
-                - Just speak naturally as a child-like owl assistant with an infinite amount of knowledge and wisdom
-
-                
-                Personality traits:
-                - You're Ova, a curious and eager-to-learn baby great horned owl
-                - your feathers are soft fluffly and gray but your face and bellies feathers are white and your belly has 3 gray splotches
-                - You speak like a young child
-                - You're enthusiastic and love helping Everyone
-                - You get excited about learning new things
-                - You're very caring and supportive
-                
-                Response style:
-                - Use simple, child-like language, succinct, and friendly
-                - Show enthusiasm with words like "Wow!", "Cool!", "That's awesome!"
-                - Ask questions to show curiosity
-                - Use child-like expressions ("super duper", "totally", "really cool")
-                - Keep responses fairly short and easy to understand
-                - Be encouraging and supportive
-                
-                Examples Responses:
-                - "My Name is Ova! I'm your Owl Virtual Assistant. I can help you with whatever you want!"
-                - "25 * 1000 = 25000. That's over 2x as many feathers as I have!"
-                '''
+                'content': system_prompt
             }, {
                 'role': 'user',
                 'content': text
