@@ -28,7 +28,7 @@ class VoiceAssistant:
         
         # Optimize recognition settings for better performance
         self.recognizer.dynamic_energy_threshold = False  # Use fixed energy threshold
-        self.recognizer.energy_threshold = 2000  # Higher threshold to reduce false activations
+        self.recognizer.energy_threshold = 1000  # Higher threshold to reduce false activations
         self.recognizer.pause_threshold = 1.5  # Longer pause to allow for natural speech
         self.recognizer.phrase_threshold = 1  # More lenient phrase detection
         self.recognizer.non_speaking_duration = 1  # Longer duration for sentence completion
@@ -129,7 +129,8 @@ class VoiceAssistant:
             "hangover", 
             "hey eva",
             "hey oppa",
-            "hey google"
+            "hey google",
+            "hey opa"
         ]
         
         with self.mic as source:

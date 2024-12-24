@@ -75,7 +75,7 @@ class SpeechBubble(QWidget):
         self.divider.setFrameShape(QFrame.HLine)
         self.divider.setStyleSheet("""
             background-color: #ccc;
-            margin: 5px 0;
+            margin: 5px 0 1px 0;
         """)
         self.divider.setFixedHeight(1)
         content_layout.addWidget(self.divider)
