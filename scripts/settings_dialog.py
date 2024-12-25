@@ -177,36 +177,45 @@ class SettingsDialog(QDialog):
         display_group.setLayout(display_group_layout)
         general_layout.addWidget(display_group)
         
-        # Conversation History Group
-        history_group = QGroupBox("Conversation History")
-        history_group_layout = QVBoxLayout()
-        
-        # Save History Toggle
-        save_history_layout = QHBoxLayout()
-        self.save_history = QComboBox()
-        self.save_history.addItems(["Save History", "Don't Save"])
-        save_history_layout.addWidget(QLabel("Save History:"))
-        save_history_layout.addWidget(self.save_history)
-        
-        # History Length Setting
-        history_length_layout = QHBoxLayout()
-        self.history_length = QSpinBox()
-        self.history_length.setMinimum(1)
-        self.history_length.setMaximum(50)  # Max 50 pairs (100 messages)
-        self.history_length.setValue(self.config.get('max_conversation_pairs', 10))
-        self.history_length.setSuffix(" pairs")
-        history_length_layout.addWidget(QLabel("Remember last:"))
-        history_length_layout.addWidget(self.history_length)
-        
-        history_group_layout.addLayout(save_history_layout)
-        history_group_layout.addLayout(history_length_layout)
-        history_group.setLayout(history_group_layout)
-        general_layout.addWidget(history_group)
-        
+        general_layout.addStretch()
         general_tab.setLayout(general_layout)
 
         # Voice Settings Tab
         voice_tab = QWidget()
+        self.setupVoiceTab(voice_tab)
+        
+        # Behavior Settings Tab
+        behavior_tab = QWidget()
+        self.setupBehaviorTab(behavior_tab)
+        
+        # History Settings Tab
+        history_tab = QWidget()
+        self.setupHistoryTab(history_tab)
+        
+        # Add tabs
+        tabs.addTab(general_tab, "General")
+        tabs.addTab(voice_tab, "Voice")
+        tabs.addTab(behavior_tab, "Behavior")
+        tabs.addTab(history_tab, "History")
+        layout.addWidget(tabs)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("Save")
+        cancel_button = QPushButton("Cancel")
+        save_button.clicked.connect(self.accept)
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+        
+        # Load saved settings
+        self.loadSavedSettings()
+
+    def setupVoiceTab(self, tab):
+        """Setup the voice settings tab"""
         voice_layout = QVBoxLayout()
         
         # Voice Selection Group
@@ -231,33 +240,10 @@ class SettingsDialog(QDialog):
         voice_group_layout.addLayout(voice_selection_layout)
         voice_group.setLayout(voice_group_layout)
         voice_layout.addWidget(voice_group)
-        voice_tab.setLayout(voice_layout)
         
-        # Behavior Settings Tab
-        behavior_tab = QWidget()
-        self.setupBehaviorTab(behavior_tab)
-        
-        # Add tabs
-        tabs.addTab(general_tab, "General")
-        tabs.addTab(voice_tab, "Voice")
-        tabs.addTab(behavior_tab, "Behavior")
-        layout.addWidget(tabs)
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        save_button = QPushButton("Save")
-        cancel_button = QPushButton("Cancel")
-        save_button.clicked.connect(self.accept)
-        cancel_button.clicked.connect(self.reject)
-        button_layout.addWidget(save_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-        
-        self.setLayout(layout)
-        
-        # Load saved settings
-        self.loadSavedSettings()
-        
+        voice_layout.addStretch()
+        tab.setLayout(voice_layout)
+
     def setupBehaviorTab(self, tab):
         """Setup the behavior settings tab"""
         layout = QVBoxLayout()
@@ -327,6 +313,39 @@ class SettingsDialog(QDialog):
         random_layout.addLayout(action_layout)
         random_group.setLayout(random_layout)
         layout.addWidget(random_group)
+        
+        layout.addStretch()
+        tab.setLayout(layout)
+
+    def setupHistoryTab(self, tab):
+        """Setup the history settings tab"""
+        layout = QVBoxLayout()
+        
+        # Conversation History Group
+        history_group = QGroupBox("Conversation Memory")
+        history_layout = QVBoxLayout()
+        
+        # Save History Toggle
+        save_history_layout = QHBoxLayout()
+        self.save_history = QComboBox()
+        self.save_history.addItems(["Save History", "Don't Save"])
+        save_history_layout.addWidget(QLabel("Save History:"))
+        save_history_layout.addWidget(self.save_history)
+        
+        # History Length Setting
+        history_length_layout = QHBoxLayout()
+        self.history_length = QSpinBox()
+        self.history_length.setMinimum(1)
+        self.history_length.setMaximum(50)  # Max 50 pairs (100 messages)
+        self.history_length.setValue(self.config.get('max_conversation_pairs', 10))
+        self.history_length.setSuffix(" pairs")
+        history_length_layout.addWidget(QLabel("Remember last:"))
+        history_length_layout.addWidget(self.history_length)
+        
+        history_layout.addLayout(save_history_layout)
+        history_layout.addLayout(history_length_layout)
+        history_group.setLayout(history_layout)
+        layout.addWidget(history_group)
         
         layout.addStretch()
         tab.setLayout(layout)
