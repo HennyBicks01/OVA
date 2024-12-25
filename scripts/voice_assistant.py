@@ -45,8 +45,8 @@ class VoiceAssistant:
         # Optimize recognition settings for better wake word detection
         self.recognizer.dynamic_energy_threshold = False
         self.recognizer.energy_threshold = 800  # More sensitive for wake word
-        self.recognizer.pause_threshold = 0.8  # Balanced pause threshold
-        self.recognizer.phrase_threshold = 0.3  # More sensitive phrase detection
+        self.recognizer.pause_threshold = 1.5  # Balanced pause threshold
+        self.recognizer.phrase_threshold = 0.05  # More sensitive phrase detection
         self.recognizer.non_speaking_duration = 0.5  # Shorter non-speaking duration
         self.recognizer.operation_timeout = None  # No timeout
 
@@ -108,97 +108,91 @@ class VoiceAssistant:
                         text = self.recognizer.recognize_google(audio).lower()
                         print("Heard:", text)
                         
-                        # Check for wake word
+                        # Check for wake word or direct listen mode
                         detected_wake_word = None
-                        for wake_word in wake_words:
-                            if wake_word in text:
-                                detected_wake_word = wake_word
-                                break
+                        if not self.direct_listen_mode:  # Only check wake word if not in direct listen
+                            for wake_word in wake_words:
+                                if wake_word in text:
+                                    detected_wake_word = wake_word
+                                    break
                         
                         if detected_wake_word or self.direct_listen_mode:
-                            # Play activation sound immediately
+                            # Play activation sound for wake word only
                             if detected_wake_word and self.activation_sound_obj:
                                 self.activation_sound_obj.play()
                             
-                            # Start listening animation
-                            if self.callback:
+                            # Start listening animation if not already listening
+                            if not self.direct_listen_mode and self.callback:
                                 self.callback("START_LISTENING")
                             
                             # Flag to track if we got a response
                             got_response = False
                             
-                            # Check if there's a command after the wake word
-                            command_after_wake = ""
-                            if detected_wake_word:
-                                # Remove wake word and check for remaining text
-                                command_after_wake = text.replace(detected_wake_word, "").strip()
-                            
-                            if command_after_wake:
-                                # Process immediate command
+                            # Process text based on mode
+                            if self.direct_listen_mode:
+                                # In direct listen mode, process the text directly
                                 got_response = True
                                 if self.callback:
                                     self.callback("START_THINKING")
-                                self._generate_response(command_after_wake)
+                                self._generate_response(text)
+                                # Exit direct listen mode
+                                self.stop_direct_listening()
                             else:
-                                # Start no-response timer
-                                if self.no_response_timer:
-                                    self.no_response_timer.cancel()
-                                
-                                def handle_no_response():
-                                    nonlocal got_response
-                                    if not got_response:
-                                        if self.no_answer_sound_obj:
-                                            self.no_answer_sound_obj.play()
-                                        if self.callback:
-                                            self.callback("STOP_LISTENING")
-                                        got_response = True  # Set flag to break command listening
-                                
-                                self.no_response_timer = threading.Timer(5.0, handle_no_response)
-                                self.no_response_timer.start()
-                                
-                                # Listen for the command with longer phrase time limit
-                                try:
-                                    # Small delay to let the activation sound play
-                                    time.sleep(0.1)
-                                    
-                                    # Temporarily adjust settings for command recognition
-                                    self.recognizer.pause_threshold = 1.5
-                                    self.recognizer.phrase_threshold = 0.8
-                                    
-                                    # Listen for command with timeout
-                                    start_time = time.time()
-                                    while not got_response and time.time() - start_time < 5:  # 5 second maximum wait
-                                        try:
-                                            command_audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=10)
-                                            command_text = self.recognizer.recognize_google(command_audio).lower()
-                                            print("Command:", command_text)
-                                            
-                                            # Cancel no-response timer since we got a response
-                                            if self.no_response_timer:
-                                                self.no_response_timer.cancel()
-                                            
-                                            got_response = True
-                                            
-                                            # Process the command
-                                            if command_text:
-                                                if self.callback:
-                                                    self.callback("START_THINKING")
-                                                self._generate_response(command_text)
-                                            break
-                                            
-                                        except sr.WaitTimeoutError:
-                                            continue  # Keep trying until timeout or response
-                                        except sr.UnknownValueError:
-                                            continue  # Keep trying if speech wasn't understood
-                                    
-                                except sr.RequestError as e:
-                                    print(f"Could not request results for command: {e}")
-                                finally:
-                                    # Reset recognition settings for wake word detection
-                                    self.recognizer.pause_threshold = 0.8
-                                    self.recognizer.phrase_threshold = 0.3
+                                # Check for command after wake word
+                                command_after_wake = text.replace(detected_wake_word, "").strip()
+                                if command_after_wake:
+                                    got_response = True
+                                    if self.callback:
+                                        self.callback("START_THINKING")
+                                    self._generate_response(command_after_wake)
+                                else:
+                                    # Start no-response timer
                                     if self.no_response_timer:
                                         self.no_response_timer.cancel()
+                                    
+                                    def handle_no_response():
+                                        nonlocal got_response
+                                        if not got_response:
+                                            if self.no_answer_sound_obj:
+                                                self.no_answer_sound_obj.play()
+                                            if self.callback:
+                                                self.callback("STOP_LISTENING")
+                                            got_response = True
+                                    
+                                    self.no_response_timer = threading.Timer(10.0, handle_no_response)
+                                    self.no_response_timer.start()
+                                    
+                                    # Listen for command
+                                    try:
+                                        time.sleep(0.1)
+                                        start_time = time.time()
+                                        while not got_response and time.time() - start_time < 5:
+                                            try:
+                                                command_audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=10)
+                                                command_text = self.recognizer.recognize_google(command_audio).lower()
+                                                print("Command:", command_text)
+                                                
+                                                if self.no_response_timer:
+                                                    self.no_response_timer.cancel()
+                                                
+                                                got_response = True
+                                                
+                                                if command_text:
+                                                    if self.callback:
+                                                        self.callback("START_THINKING")
+                                                    self._generate_response(command_text)
+                                                break
+                                                
+                                            except sr.WaitTimeoutError:
+                                                continue
+                                            except sr.UnknownValueError:
+                                                continue
+                                        
+                                    except sr.RequestError as e:
+                                        print(f"Could not request results for command: {e}")
+                                    finally:
+                                        if self.no_response_timer:
+                                            self.no_response_timer.cancel()
                     
                     except sr.UnknownValueError:
                         pass  # Silent failure for unrecognized speech
@@ -223,16 +217,20 @@ class VoiceAssistant:
         self.direct_listen_mode = True
         self.callback("START_LISTENING")  # Trigger listening animation
         
-        def timeout_handler():
+        # Start no-response timer
+        if self.no_response_timer:
+            self.no_response_timer.cancel()
+        
+        def handle_no_response():
             self.direct_listen_mode = False
             self.direct_listen_timer = None
-            # Don't need to play no-answer sound here as it's handled by no_response_timer
+            if self.no_answer_sound_obj:
+                self.no_answer_sound_obj.play()
+            if self.callback:
+                self.callback("STOP_LISTENING")
         
-        # Start timeout timer
-        if self.direct_listen_timer:
-            self.direct_listen_timer.cancel()
-        self.direct_listen_timer = threading.Timer(timeout, timeout_handler)
-        self.direct_listen_timer.start()
+        self.no_response_timer = threading.Timer(timeout, handle_no_response)
+        self.no_response_timer.start()
 
     def stop_direct_listening(self):
         """Stop direct listening mode"""
