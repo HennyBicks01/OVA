@@ -550,24 +550,42 @@ class OwlPet(QWidget):
             # Check if response ends with a question mark
             if response.strip().endswith('?') and not self.waiting_for_response:
                 self.waiting_for_response = True
-                self.tts_engine.speak_finished.connect(self.start_direct_listening)
+                # Connect to speak finished to start listening
+                self.tts_engine.speak_finished.connect(self.handle_question_response)
                 
         except Exception as e:
             print(f"Error handling response: {e}")
     
-    def start_direct_listening(self):
-        """Start direct listening mode after speech is finished"""
+    def handle_question_response(self):
+        """Handle when Ova asks a question"""
         try:
             # Disconnect the signal to prevent multiple connections
-            self.tts_engine.speak_finished.disconnect(self.start_direct_listening)
+            self.tts_engine.speak_finished.disconnect(self.handle_question_response)
             
             if hasattr(self, 'voice_assistant') and self.voice_assistant:
-                self.voice_assistant.start_direct_listening(timeout=10)
+                # Start listening animation
+                self.setState("listening")
+                
+                # Start no-response timer
+                if self.voice_assistant.no_response_timer:
+                    self.voice_assistant.no_response_timer.cancel()
+                
+                def handle_no_response():
+                    if self.voice_assistant.no_answer_sound_obj:
+                        self.voice_assistant.no_answer_sound_obj.play()
+                    self.setState("idle")  # Return to idle state
+                    self.waiting_for_response = False
+                
+                self.voice_assistant.no_response_timer = threading.Timer(5.0, handle_no_response)
+                self.voice_assistant.no_response_timer.start()
+                
+                # Start direct listening mode
+                self.voice_assistant.start_direct_listening(timeout=5)
             
             self.waiting_for_response = False
             
         except Exception as e:
-            print(f"Error in start_direct_listening: {e}")
+            print(f"Error in handle_question_response: {e}")
             self.waiting_for_response = False
     
     def start_thinking(self):

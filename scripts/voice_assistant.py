@@ -6,7 +6,6 @@ import os
 import json
 import logging
 import pygame
-from playsound import playsound
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -219,7 +218,7 @@ class VoiceAssistant:
             self.listen_thread.join(timeout=1)
             self.listen_thread = None
 
-    def start_direct_listening(self, timeout=10):
+    def start_direct_listening(self, timeout=5):
         """Start listening directly without wake word for a specified duration"""
         self.direct_listen_mode = True
         self.callback("START_LISTENING")  # Trigger listening animation
@@ -227,8 +226,11 @@ class VoiceAssistant:
         def timeout_handler():
             self.direct_listen_mode = False
             self.direct_listen_timer = None
+            # Don't need to play no-answer sound here as it's handled by no_response_timer
         
         # Start timeout timer
+        if self.direct_listen_timer:
+            self.direct_listen_timer.cancel()
         self.direct_listen_timer = threading.Timer(timeout, timeout_handler)
         self.direct_listen_timer.start()
 
