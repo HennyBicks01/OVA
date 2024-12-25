@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QFrame, QWidget, QSizePolicy
+from PyQt5.QtWidgets import QLabel, QVBoxLayout, QFrame, QWidget, QSizePolicy, QPushButton, QHBoxLayout
 from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QFontDatabase, QFont
 import logging
@@ -50,6 +50,9 @@ class SpeechBubble(QWidget):
         content_layout.setContentsMargins(15, 10, 15, 10)
         content_layout.setSpacing(4)
         
+        # Create top row with user text and close button
+        top_row = QHBoxLayout()
+        
         # Create labels for user text and response
         self.user_label = QLabel()
         self.user_label.setStyleSheet(f"""
@@ -68,7 +71,29 @@ class SpeechBubble(QWidget):
         self.user_label.setWordWrap(True)
         self.user_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.user_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
-        content_layout.addWidget(self.user_label)
+        top_row.addWidget(self.user_label)
+        
+        # Add close button
+        self.close_button = QPushButton("×")
+        self.close_button.setFixedSize(16, 16)
+        self.close_button.setStyleSheet("""
+            QPushButton {
+                color: #ff4444;
+                background: transparent;
+                border: none;
+                font-size: 16px;
+                font-weight: bold;
+                padding: 0;
+                margin: 0;
+            }
+            QPushButton:hover {
+                color: #ff0000;
+            }
+        """)
+        self.close_button.clicked.connect(self.hide)
+        top_row.addWidget(self.close_button)
+        
+        content_layout.addLayout(top_row)
         
         # Create divider
         self.divider = QFrame()

@@ -171,7 +171,9 @@ class SettingsDialog(QDialog):
         
         # Display Mode Selection
         self.display_mode = QComboBox()
-        self.display_mode.addItems(["Speech Bubble", "Chat Window", "No Display"])
+        self.display_mode.addItems(["Speech Bubble", 
+        # "Chat Window", 
+        "No Display"])
         display_group_layout.addWidget(QLabel("Display Mode:"))
         display_group_layout.addWidget(self.display_mode)
         
