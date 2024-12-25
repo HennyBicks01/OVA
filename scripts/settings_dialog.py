@@ -26,7 +26,9 @@ class SettingsDialog(QDialog):
             'voice_name': 'en-US-AnaNeural',
             'sleep_timer': 30,
             'personality_preset': 'ova',
-            'display_mode': 'bubble'
+            'display_mode': 'bubble',
+            'max_conversation_pairs': 10,  # Default to 10 pairs (20 messages)
+            'save_conversation_history': True  # Default to saving history
         }
         
         try:
@@ -98,6 +100,32 @@ class SettingsDialog(QDialog):
         
         display_group.setLayout(display_group_layout)
         general_layout.addWidget(display_group)
+        
+        # Conversation History Group
+        history_group = QGroupBox("Conversation History")
+        history_group_layout = QVBoxLayout()
+        
+        # Save History Toggle
+        save_history_layout = QHBoxLayout()
+        self.save_history = QComboBox()
+        self.save_history.addItems(["Save History", "Don't Save"])
+        save_history_layout.addWidget(QLabel("Save History:"))
+        save_history_layout.addWidget(self.save_history)
+        
+        # History Length Setting
+        history_length_layout = QHBoxLayout()
+        self.history_length = QSpinBox()
+        self.history_length.setMinimum(1)
+        self.history_length.setMaximum(50)  # Max 50 pairs (100 messages)
+        self.history_length.setValue(self.config.get('max_conversation_pairs', 10))
+        self.history_length.setSuffix(" pairs")
+        history_length_layout.addWidget(QLabel("Remember last:"))
+        history_length_layout.addWidget(self.history_length)
+        
+        history_group_layout.addLayout(save_history_layout)
+        history_group_layout.addLayout(history_length_layout)
+        history_group.setLayout(history_group_layout)
+        general_layout.addWidget(history_group)
         
         general_tab.setLayout(general_layout)
 
@@ -177,6 +205,7 @@ class SettingsDialog(QDialog):
         voice_name = self.config.get('voice_name', 'en-US-AnaNeural')
         preset = self.config.get('personality_preset', 'ova')
         display_mode = self.config.get('display_mode', 'bubble')
+        save_history = self.config.get('save_conversation_history', True)
         
         # Set preset
         index = self.preset_selection.findText(preset)
@@ -189,6 +218,10 @@ class SettingsDialog(QDialog):
         index = self.display_mode.findText(mode_text)
         if index >= 0:
             self.display_mode.setCurrentIndex(index)
+        
+        # Set history settings
+        self.save_history.setCurrentText("Save History" if save_history else "Don't Save")
+        self.history_length.setValue(self.config.get('max_conversation_pairs', 10))
         
         # Set voice type
         index = self.voice_type.findText(voice_type)
@@ -232,6 +265,10 @@ class SettingsDialog(QDialog):
         # Map display mode text to config value
         mode_map = {'Speech Bubble': 'bubble', 'Chat Window': 'chat', 'No Display': 'none'}
         self.config['display_mode'] = mode_map.get(self.display_mode.currentText(), 'bubble')
+        
+        # Save history settings
+        self.config['save_conversation_history'] = (self.save_history.currentText() == "Save History")
+        self.config['max_conversation_pairs'] = self.history_length.value()
         
         # Save config
         self.save_config()

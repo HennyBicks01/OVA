@@ -25,6 +25,10 @@ class VoiceAssistant:
         self.no_response_timer = None
         self.conversation_history = []  # Store conversation history
         
+        # Load config and history
+        self.config = self.load_config()
+        self.load_conversation_history()
+        
         # Sound file paths and initialization
         self.activation_sound = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'HeyOva.mp3')
         self.no_answer_sound = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'NoAnswer.mp3')
@@ -39,8 +43,6 @@ class VoiceAssistant:
             self.activation_sound_obj = None
             self.no_answer_sound_obj = None
         
-        # Load config
-        self.config = self.load_config()
         logger.info(f"Voice assistant initialized with config: {self.config}")
         
         # Optimize recognition settings for better wake word detection
@@ -64,10 +66,46 @@ class VoiceAssistant:
             logger.error(f"Error loading config: {e}")
         return {'personality_preset': 'ova'}
     
+    def load_conversation_history(self):
+        """Load conversation history from file"""
+        history_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'conversation_history.json')
+        try:
+            if os.path.exists(history_path) and self.config.get('save_conversation_history', True):
+                with open(history_path, 'r') as f:
+                    self.conversation_history = json.load(f)
+                    # Trim to max length from config
+                    max_pairs = self.config.get('max_conversation_pairs', 10)
+                    if len(self.conversation_history) > max_pairs * 2:
+                        self.conversation_history = self.conversation_history[-(max_pairs * 2):]
+                    logger.info(f"Loaded {len(self.conversation_history)} messages from history")
+        except Exception as e:
+            logger.error(f"Error loading conversation history: {e}")
+            self.conversation_history = []
+
+    def save_conversation_history(self):
+        """Save conversation history to file"""
+        if not self.config.get('save_conversation_history', True):
+            return
+            
+        history_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'conversation_history.json')
+        try:
+            # Ensure we don't exceed max pairs
+            max_pairs = self.config.get('max_conversation_pairs', 10)
+            if len(self.conversation_history) > max_pairs * 2:
+                self.conversation_history = self.conversation_history[-(max_pairs * 2):]
+                
+            with open(history_path, 'w') as f:
+                json.dump(self.conversation_history, f)
+            logger.info(f"Saved {len(self.conversation_history)} messages to history")
+        except Exception as e:
+            logger.error(f"Error saving conversation history: {e}")
+
     def reload_config(self):
         """Reload configuration"""
         self.config = self.load_config()
         logger.info(f"Reloaded voice assistant config: {self.config}")
+        # Reload conversation history with new settings
+        self.load_conversation_history()
 
     def start_listening(self):
         """Start continuous listening in a separate thread"""
@@ -315,9 +353,13 @@ class VoiceAssistant:
                 'content': response_text
             })
             
-            # Keep only last 10 exchanges (20 messages) to prevent context from getting too long
-            if len(self.conversation_history) > 20:
-                self.conversation_history = self.conversation_history[-20:]
+            # Trim history if needed
+            max_pairs = self.config.get('max_conversation_pairs', 10)
+            if len(self.conversation_history) > max_pairs * 2:
+                self.conversation_history = self.conversation_history[-(max_pairs * 2):]
+            
+            # Save updated history
+            self.save_conversation_history()
             
             if self.callback:
                 self.callback(response_text)
