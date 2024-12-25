@@ -1,5 +1,6 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QComboBox, 
-                             QLabel, QPushButton, QGroupBox, QTabWidget, QWidget, QSpinBox)
+                             QLabel, QPushButton, QGroupBox, QTabWidget, QWidget, QSpinBox, 
+                             QCheckBox, QDialogButtonBox)
 from PyQt5.QtCore import Qt
 import json
 import os
@@ -28,7 +29,16 @@ class SettingsDialog(QDialog):
             'personality_preset': 'ova',
             'display_mode': 'bubble',
             'max_conversation_pairs': 10,  # Default to 10 pairs (20 messages)
-            'save_conversation_history': True  # Default to saving history
+            'save_conversation_history': True,  # Default to saving history
+            'enable_random_actions': True,
+            'min_action_interval': 5,
+            'max_action_interval': 10,
+            'enabled_actions': {
+                'take_flight': True,
+                'look_around': True,
+                'dance': True,
+                'screech': True
+            }
         }
         
         try:
@@ -134,7 +144,7 @@ class SettingsDialog(QDialog):
     def initUI(self):
         layout = QVBoxLayout()
         
-        # Create tab widget
+        # Create tabs
         tabs = QTabWidget()
         
         # General Settings Tab
@@ -225,24 +235,7 @@ class SettingsDialog(QDialog):
         
         # Behavior Settings Tab
         behavior_tab = QWidget()
-        behavior_layout = QVBoxLayout()
-        
-        # Sleep Timer Group
-        sleep_group = QGroupBox("Sleep Timer")
-        sleep_group_layout = QHBoxLayout()
-        
-        # Sleep Timer Input
-        self.sleep_timer = QSpinBox()
-        self.sleep_timer.setMinimum(5)  # Minimum 5 seconds
-        self.sleep_timer.setMaximum(3600)  # Maximum 1 hour
-        self.sleep_timer.setValue(self.config.get('sleep_timer', 30))  # Default 30 seconds
-        self.sleep_timer.setSuffix(" seconds")
-        
-        sleep_group_layout.addWidget(QLabel("Time before sleep:"))
-        sleep_group_layout.addWidget(self.sleep_timer)
-        sleep_group.setLayout(sleep_group_layout)
-        behavior_layout.addWidget(sleep_group)
-        behavior_tab.setLayout(behavior_layout)
+        self.setupBehaviorTab(behavior_tab)
         
         # Add tabs
         tabs.addTab(general_tab, "General")
@@ -265,6 +258,79 @@ class SettingsDialog(QDialog):
         # Load saved settings
         self.loadSavedSettings()
         
+    def setupBehaviorTab(self, tab):
+        """Setup the behavior settings tab"""
+        layout = QVBoxLayout()
+        
+        # Sleep Timer Group
+        sleep_group = QGroupBox("Sleep Timer")
+        sleep_layout = QHBoxLayout()
+        
+        sleep_layout.addWidget(QLabel("Sleep After (seconds):"))
+        self.sleep_timer = QSpinBox()
+        self.sleep_timer.setRange(5, 3600)
+        self.sleep_timer.setValue(self.config.get('sleep_timer', 60))
+        sleep_layout.addWidget(self.sleep_timer)
+        
+        sleep_group.setLayout(sleep_layout)
+        layout.addWidget(sleep_group)
+        
+        # Random Actions Group
+        random_group = QGroupBox("Random Actions")
+        random_layout = QVBoxLayout()
+        
+        # Enable random actions
+        self.enable_random = QCheckBox("Enable Random Actions")
+        self.enable_random.setChecked(self.config.get('enable_random_actions', True))
+        random_layout.addWidget(self.enable_random)
+        
+        # Interval settings
+        interval_layout = QHBoxLayout()
+        interval_layout.addWidget(QLabel("Action Interval (seconds):"))
+        
+        self.min_interval = QSpinBox()
+        self.min_interval.setRange(1, 3600)
+        self.min_interval.setValue(self.config.get('min_action_interval', 5))
+        interval_layout.addWidget(self.min_interval)
+        
+        interval_layout.addWidget(QLabel("to"))
+        
+        self.max_interval = QSpinBox()
+        self.max_interval.setRange(1, 3600)
+        self.max_interval.setValue(self.config.get('max_action_interval', 10))
+        interval_layout.addWidget(self.max_interval)
+        
+        random_layout.addLayout(interval_layout)
+        
+        # Action selection
+        action_layout = QVBoxLayout()
+        
+        self.action_checkboxes = {}
+        default_actions = self.config.get('enabled_actions', {
+            'take_flight': True,
+            'look_around': True,
+            'dance': True,
+            'screech': True
+        })
+        
+        for action, label in [
+            ('take_flight', 'Take Flight'),
+            ('look_around', 'Look Around'),
+            ('dance', 'Dance'),
+            ('screech', 'Screech')
+        ]:
+            checkbox = QCheckBox(label)
+            checkbox.setChecked(default_actions.get(action, True))
+            self.action_checkboxes[action] = checkbox
+            action_layout.addWidget(checkbox)
+        
+        random_layout.addLayout(action_layout)
+        random_group.setLayout(random_layout)
+        layout.addWidget(random_group)
+        
+        layout.addStretch()
+        tab.setLayout(layout)
+
     def loadSavedSettings(self):
         """Load and apply saved settings"""
         voice_type = self.config.get('voice_type', 'Azure Voice')
@@ -321,7 +387,7 @@ class SettingsDialog(QDialog):
         
         # Update config with current values
         self.config['voice_type'] = self.voice_type.currentText()
-        self.config['voice_name'] = self.voice_selection.currentText()
+        self.config['voice_name'] = self.getSelectedVoice()
         self.config['sleep_timer'] = self.sleep_timer.value()
         self.config['personality_preset'] = self.preset_selection.currentText()
         
@@ -332,6 +398,15 @@ class SettingsDialog(QDialog):
         # Save history settings
         self.config['save_conversation_history'] = (self.save_history.currentText() == "Save History")
         self.config['max_conversation_pairs'] = self.history_length.value()
+        
+        # Add random action settings
+        self.config['enable_random_actions'] = self.enable_random.isChecked()
+        self.config['min_action_interval'] = self.min_interval.value()
+        self.config['max_action_interval'] = self.max_interval.value()
+        self.config['enabled_actions'] = {
+            action: checkbox.isChecked()
+            for action, checkbox in self.action_checkboxes.items()
+        }
         
         # Save config
         self.save_config()

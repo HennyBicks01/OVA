@@ -80,6 +80,22 @@ class OwlPet(QWidget):
         # Load config
         self.config = self.load_config()
         
+        # Random action timer
+        self.random_action_timer = QTimer(self)
+        self.random_action_timer.timeout.connect(self.perform_random_action)
+        self.schedule_next_random_action()
+        
+        # Initialize variables
+        self.current_state = "idle"
+        self.previous_state = None
+        self.frame_index = 0
+        self.frame_delay = 50  # 50ms = 20fps for normal animations
+        self.in_transition = False
+        self.scale_factor = 2  # Reduced scale factor
+        
+        # Load config
+        self.config = self.load_config()
+        
         # Flag for direct listening mode
         self.waiting_for_response = False
         
@@ -406,6 +422,10 @@ class OwlPet(QWidget):
             self.flying_start, *self.flying_control_points, self.flying_end = self.generate_bezier_points()
             self.flying_progress = 0
             self.facing_right = self.flying_end.x() > self.flying_start.x()
+            
+        # Schedule next random action only when entering idle state
+        if new_state == "idle" and self.previous_state != "idle":
+            self.schedule_next_random_action()
 
     def randomStateChange(self):
         """Disabled random state changes"""
@@ -754,6 +774,9 @@ class OwlPet(QWidget):
             # Update voice assistant with new config
             if hasattr(self, 'voice_assistant') and self.voice_assistant:
                 self.voice_assistant.reload_config()
+                
+            # Reschedule random actions with new settings
+            self.schedule_next_random_action()
     
     def load_config(self):
         """Load configuration from config.json"""
@@ -868,6 +891,55 @@ class OwlPet(QWidget):
             self.sender().stop()
             # Return to idle
             self.state_change_signal.emit("idle")
+
+    def schedule_next_random_action(self):
+        """Schedule the next random action based on config settings"""
+        if not self.config.get('enable_random_actions', True):
+            return
+            
+        min_interval = self.config.get('min_action_interval', 5)
+        max_interval = self.config.get('max_action_interval', 10)
+        
+        # Convert to milliseconds
+        interval = random.randint(min_interval * 1000, max_interval * 1000)
+        
+        # Reset and start timer
+        if hasattr(self, 'random_action_timer'):
+            self.random_action_timer.stop()
+        self.random_action_timer = QTimer(self)
+        self.random_action_timer.timeout.connect(self.perform_random_action)
+        self.random_action_timer.setSingleShot(True)  # Only trigger once
+        self.random_action_timer.start(interval)
+    
+    def perform_random_action(self):
+        """Perform a random action from the enabled actions list"""
+        # Only perform actions if we're in idle state
+        if self.current_state != "idle":
+            return
+            
+        # Get enabled actions
+        enabled_actions = self.config.get('enabled_actions', {})
+        available_actions = [
+            action for action, enabled in enabled_actions.items()
+            if enabled
+        ]
+        
+        if available_actions:
+            # Choose random action
+            action = random.choice(available_actions)
+            
+            # Perform the chosen action
+            if action == 'take_flight':
+                self.state_change_signal.emit("take_flight")
+            elif action == 'look_around':
+                self.state_change_signal.emit("look_around")
+            elif action == 'dance':
+                self.start_dance()
+            elif action == 'screech':
+                self.screech()
+        
+        # Schedule next action
+        self.schedule_next_random_action()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
