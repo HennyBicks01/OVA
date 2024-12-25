@@ -23,6 +23,7 @@ class VoiceAssistant:
         self.direct_listen_mode = False
         self.direct_listen_timer = None
         self.no_response_timer = None
+        self.conversation_history = []  # Store conversation history
         
         # Sound file paths and initialization
         self.activation_sound = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'HeyOva.mp3')
@@ -282,17 +283,41 @@ class VoiceAssistant:
             else:
                 logger.warning(f"Warning: Preset file {preset_file} not found")
             
-            # Generate response using llama3.2 with selected preset
-            response = self.client.chat(model='llama3.2:latest', messages=[{
+            # Build messages array with history
+            messages = [{
                 'role': 'system',
                 'content': system_prompt
-            }, {
+            }]
+            
+            # Add conversation history
+            for msg in self.conversation_history:
+                messages.append(msg)
+            
+            # Add current user message
+            messages.append({
                 'role': 'user',
                 'content': text
-            }])
+            })
+            
+            # Generate response using llama3.2 with selected preset and history
+            response = self.client.chat(model='llama3.2:latest', messages=messages)
             
             response_text = response['message']['content']
             print("Generated response:", response_text)
+            
+            # Add the exchange to conversation history
+            self.conversation_history.append({
+                'role': 'user',
+                'content': text
+            })
+            self.conversation_history.append({
+                'role': 'assistant',
+                'content': response_text
+            })
+            
+            # Keep only last 10 exchanges (20 messages) to prevent context from getting too long
+            if len(self.conversation_history) > 20:
+                self.conversation_history = self.conversation_history[-20:]
             
             if self.callback:
                 self.callback(response_text)
