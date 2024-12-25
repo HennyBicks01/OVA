@@ -15,6 +15,7 @@ import json
 import pyttsx3
 import time
 import logging
+import pygame
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -65,6 +66,9 @@ class OwlPet(QWidget):
     
     def __init__(self):
         super().__init__()
+        # Initialize pygame mixer for sound effects
+        pygame.mixer.init()
+        
         # Initialize variables
         self.current_state = "idle"
         self.previous_state = None
@@ -705,6 +709,9 @@ class OwlPet(QWidget):
         dance_action = menu.addAction("Dance")
         dance_action.triggered.connect(self.start_dance)
         
+        screech_action = menu.addAction("Screech")
+        screech_action.triggered.connect(self.screech)
+        
         menu.addSeparator()
         
         settings_action = menu.addAction("Settings")
@@ -824,6 +831,43 @@ class OwlPet(QWidget):
         if self.current_state == "listening":
             self.state_change_signal.emit("idle")
             self.reset_idle_timer()
+
+    def screech(self):
+        """Play a random screech sound and animate"""
+        try:
+            # Get list of screech sound files
+            screech_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'screeches')
+            screech_files = glob.glob(os.path.join(screech_dir, '*.mp3'))
+            
+            if screech_files:
+                # Choose random screech
+                screech_file = random.choice(screech_files)
+                
+                # Load and play the sound
+                sound = pygame.mixer.Sound(screech_file)
+                
+                # Start speaking animation
+                self.state_change_signal.emit("speaking")
+                
+                # Play the sound
+                channel = sound.play()
+                
+                # Create a timer to check when sound is done
+                check_timer = QTimer(self)
+                check_timer.timeout.connect(lambda: self.check_screech_done(channel))
+                check_timer.start(100)  # Check every 100ms
+                
+        except Exception as e:
+            print(f"Error playing screech: {e}")
+            self.state_change_signal.emit("idle")
+    
+    def check_screech_done(self, channel):
+        """Check if screech sound is finished playing"""
+        if not channel.get_busy():
+            # Sound is done, stop the timer
+            self.sender().stop()
+            # Return to idle
+            self.state_change_signal.emit("idle")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
