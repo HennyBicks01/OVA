@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QFrame, QWidget, QSizePolicy, QPushButton, QHBoxLayout
 from PyQt5.QtCore import Qt, QTimer, QSize
-from PyQt5.QtGui import QFontDatabase, QFont
+from PyQt5.QtGui import QFontDatabase
 import logging
 
 # Set up logging

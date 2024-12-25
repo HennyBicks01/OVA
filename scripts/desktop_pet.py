@@ -2,17 +2,14 @@ import sys
 import os
 import random
 import glob
-import math
-from PyQt5.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QPushButton, QDialog
+from PyQt5.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QDialog
 from PyQt5.QtCore import Qt, QTimer, QPoint, pyqtSignal, QObject, QSize, QThread
-from PyQt5.QtGui import QPixmap, QImage, QIcon, QTransform, QPainter
-import threading
+from PyQt5.QtGui import QPixmap, QIcon, QTransform, QPainter
 from voice_assistant import VoiceAssistant
 from display.display_manager import DisplayManager
 from text_to_speech import TTSEngine
 from settings_dialog import SettingsDialog
 import json
-import pyttsx3
 import time
 import logging
 import pygame
@@ -20,6 +17,16 @@ import pygame
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def get_resource_path(relative_path):
+    """Get the correct resource path whether running as script or frozen exe"""
+    if hasattr(sys, '_MEIPASS'):
+        # Running as PyInstaller bundle
+        base_path = sys._MEIPASS
+    else:
+        # Running as script
+        base_path = os.path.dirname(os.path.dirname(__file__))
+    return os.path.join(base_path, relative_path)
 
 class ChatBubble:
     def __init__(self, parent=None):
@@ -226,7 +233,7 @@ class OwlPet(QWidget):
     def createSystemTray(self):
         """Create system tray icon and menu"""
         self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon(os.path.join("assets", "tray_icon.png")))
+        self.tray_icon.setIcon(QIcon(get_resource_path(os.path.join("assets", "tray_icon.png"))))
         
         # Create the menu
         menu = QMenu()
@@ -257,8 +264,8 @@ class OwlPet(QWidget):
 
     def loadAnimations(self):
         """Load all animation frames from assets directory"""
-        # Get path to assets directory
-        assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets')
+        # Get path to assets directory using resource path
+        assets_dir = get_resource_path('assets')
         
         # Load all animations
         self.animations = {}
@@ -780,7 +787,7 @@ class OwlPet(QWidget):
     
     def load_config(self):
         """Load configuration from config.json"""
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+        config_path = get_resource_path('config.json')
         default_config = {
             'voice_type': 'Azure Voice',
             'voice_name': 'en-US-AnaNeural',
@@ -859,7 +866,7 @@ class OwlPet(QWidget):
         """Play a random screech sound and animate"""
         try:
             # Get list of screech sound files
-            screech_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'screeches')
+            screech_dir = get_resource_path(os.path.join('assets', 'sounds', 'screeches'))
             screech_files = glob.glob(os.path.join(screech_dir, '*.mp3'))
             
             if screech_files:

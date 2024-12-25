@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QComboBox, 
                              QLabel, QPushButton, QGroupBox, QTabWidget, QWidget, QSpinBox, 
-                             QCheckBox, QDialogButtonBox, QTableWidget, QTableWidgetItem, QHeaderView)
+                             QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView)
 from PyQt5.QtCore import Qt
 import json
 import os

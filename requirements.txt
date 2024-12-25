@@ -1,9 +1,9 @@
 PyQt5==5.15.10
-pyinstaller==6.3.0
-SpeechRecognition==3.10.0
-pyaudio==0.2.14
-numpy==1.26.0
-pyttsx3==2.90
-ollama==0.1.6
-azure-cognitiveservices-speech==1.33.0
-python-dotenv==1.0.0
+pyinstaller
+SpeechRecognition
+pyaudio
+pygame
+pyttsx3
+ollama
+edge-tts
+python-dotenv

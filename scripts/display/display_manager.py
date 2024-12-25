@@ -1,5 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QApplication
-from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication
 from .chat_display import ChatDisplay
 from .speech_bubble import SpeechBubble
 import logging

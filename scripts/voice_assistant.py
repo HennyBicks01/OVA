@@ -3,6 +3,7 @@ import threading
 import time
 from ollama import Client
 import os
+import sys
 import json
 import logging
 import pygame
@@ -10,6 +11,16 @@ import pygame
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def get_resource_path(relative_path):
+    """Get the correct resource path whether running as script or frozen exe"""
+    if hasattr(sys, '_MEIPASS'):
+        # Running as PyInstaller bundle
+        base_path = sys._MEIPASS
+    else:
+        # Running as script
+        base_path = os.path.dirname(os.path.dirname(__file__))
+    return os.path.join(base_path, relative_path)
 
 class VoiceAssistant:
     def __init__(self, callback=None):
@@ -30,8 +41,8 @@ class VoiceAssistant:
         self.load_conversation_history()
         
         # Sound file paths and initialization
-        self.activation_sound = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'HeyOva.mp3')
-        self.no_answer_sound = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'sounds', 'NoAnswer.mp3')
+        self.activation_sound = get_resource_path(os.path.join('assets', 'sounds', 'HeyOva.mp3'))
+        self.no_answer_sound = get_resource_path(os.path.join('assets', 'sounds', 'NoAnswer.mp3'))
         
         # Load sounds
         pygame.mixer.init()
@@ -55,7 +66,7 @@ class VoiceAssistant:
 
     def load_config(self):
         """Load configuration from config.json"""
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+        config_path = get_resource_path('config.json')
         try:
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
@@ -68,7 +79,7 @@ class VoiceAssistant:
     
     def load_conversation_history(self):
         """Load conversation history from file"""
-        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        history_dir = get_resource_path('history')
         
         # Create history directory if it doesn't exist
         if not os.path.exists(history_dir):
@@ -93,7 +104,7 @@ class VoiceAssistant:
             # Update config with current conversation
             self.config['current_conversation'] = os.path.basename(history_path)
             try:
-                config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+                config_path = get_resource_path('config.json')
                 with open(config_path, 'w') as f:
                     json.dump(self.config, f)
             except Exception as e:
@@ -117,7 +128,7 @@ class VoiceAssistant:
         if not self.config.get('save_conversation_history', True):
             return
             
-        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        history_dir = get_resource_path('history')
         if not os.path.exists(history_dir):
             os.makedirs(history_dir)
             
@@ -138,7 +149,7 @@ class VoiceAssistant:
             # Update config with current conversation
             self.config['current_conversation'] = os.path.basename(history_path)
             try:
-                config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+                config_path = get_resource_path('config.json')
                 with open(config_path, 'w') as f:
                     json.dump(self.config, f)
             except Exception as e:
@@ -368,7 +379,7 @@ class VoiceAssistant:
             logger.info(f"Using personality preset: {preset}")
             
             # Load system prompt from preset file
-            preset_file = os.path.join(os.path.dirname(__file__), 'presets', f'{preset}.txt')
+            preset_file = get_resource_path(os.path.join('presets', f'{preset}.txt'))
             system_prompt = ""
             if os.path.exists(preset_file):
                 with open(preset_file, 'r') as f:
