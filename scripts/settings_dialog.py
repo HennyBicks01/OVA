@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QComboBox, 
                              QLabel, QPushButton, QGroupBox, QTabWidget, QWidget, QSpinBox, 
-                             QCheckBox, QDialogButtonBox)
+                             QCheckBox, QDialogButtonBox, QTableWidget, QTableWidgetItem, QHeaderView)
 from PyQt5.QtCore import Qt
 import json
 import os
@@ -17,6 +17,7 @@ class SettingsDialog(QDialog):
         self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
         self.setModal(True)
         self.config = self.load_config()
+        self.current_conversation = None
         self.initUI()
         
     def load_config(self):
@@ -347,8 +348,213 @@ class SettingsDialog(QDialog):
         history_group.setLayout(history_layout)
         layout.addWidget(history_group)
         
+        # Conversation Management Group
+        convo_group = QGroupBox("Conversation Management")
+        convo_layout = QVBoxLayout()
+        
+        # Table for conversations
+        self.convo_table = QTableWidget()
+        self.convo_table.setColumnCount(4)  # Select, Number, Last Message, Delete
+        self.convo_table.setHorizontalHeaderLabels(["", "Conversation", "Last Message", ""])
+        self.convo_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.convo_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.convo_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        self.convo_table.setColumnWidth(0, 30)  # Width for checkbox
+        self.convo_table.setColumnWidth(3, 30)  # Width for delete button
+        
+        # Load conversations into table
+        self.load_conversations()
+        
+        # Buttons for managing conversations
+        button_layout = QHBoxLayout()
+        new_convo_btn = QPushButton("New Conversation")
+        clear_all_btn = QPushButton("Clear All")
+        new_convo_btn.clicked.connect(self.new_conversation)
+        clear_all_btn.clicked.connect(self.clear_all_conversations)
+        
+        button_layout.addWidget(new_convo_btn)
+        button_layout.addWidget(clear_all_btn)
+        
+        convo_layout.addWidget(self.convo_table)
+        convo_layout.addLayout(button_layout)
+        convo_group.setLayout(convo_layout)
+        layout.addWidget(convo_group)
+        
         layout.addStretch()
         tab.setLayout(layout)
+
+    def load_conversations(self):
+        """Load conversations into the table"""
+        self.convo_table.setRowCount(0)
+        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        
+        if not os.path.exists(history_dir):
+            os.makedirs(history_dir)
+            
+        # Get current conversation from config
+        current_convo = self.config.get('current_conversation')
+        files = sorted(os.listdir(history_dir))
+        json_files = [f for f in files if f.endswith('.json')]
+        
+        # If no current conversation is set or it doesn't exist, select the first one
+        if not current_convo or current_convo not in json_files:
+            if json_files:
+                current_convo = json_files[0]
+                self.config['current_conversation'] = current_convo
+                self.save_config()
+            
+        for file in json_files:
+            try:
+                with open(os.path.join(history_dir, file), 'r') as f:
+                    convo = json.load(f)
+                    
+                row = self.convo_table.rowCount()
+                self.convo_table.insertRow(row)
+                
+                # Add select checkbox
+                checkbox = QCheckBox()
+                checkbox_widget = QWidget()
+                checkbox_layout = QHBoxLayout(checkbox_widget)
+                checkbox_layout.addWidget(checkbox)
+                checkbox_layout.setAlignment(Qt.AlignCenter)
+                checkbox_layout.setContentsMargins(0, 0, 0, 0)
+                checkbox_widget.setLayout(checkbox_layout)
+                if file == current_convo:
+                    checkbox.setChecked(True)
+                    self.current_conversation = file
+                checkbox.clicked.connect(lambda checked, f=file: self.on_checkbox_clicked(f))
+                self.convo_table.setCellWidget(row, 0, checkbox_widget)
+                
+                # Just show the number, not the .json extension
+                convo_num = file.split('.')[0]
+                self.convo_table.setItem(row, 1, QTableWidgetItem(convo_num))
+                
+                # Get last message or show "Empty Conversation"
+                last_msg = convo[-1]['content'] if convo else "Empty Conversation"
+                last_msg = (last_msg[:50] + '...') if len(last_msg) > 50 else last_msg
+                self.convo_table.setItem(row, 2, QTableWidgetItem(last_msg))
+                
+                # Add delete button
+                delete_btn = QPushButton("🗑")
+                delete_btn.setFixedWidth(25)
+                delete_btn.clicked.connect(lambda _, f=file: self.delete_conversation(f))
+                delete_widget = QWidget()
+                delete_layout = QHBoxLayout(delete_widget)
+                delete_layout.addWidget(delete_btn)
+                delete_layout.setAlignment(Qt.AlignCenter)
+                delete_layout.setContentsMargins(0, 0, 0, 0)
+                delete_widget.setLayout(delete_layout)
+                self.convo_table.setCellWidget(row, 3, delete_widget)
+                
+            except Exception as e:
+                logger.error(f"Error loading conversation {file}: {e}")
+
+    def on_checkbox_clicked(self, file_name):
+        """Handle checkbox selection"""
+        self.current_conversation = file_name
+        self.switch_conversation()
+        
+        # Update all other checkboxes
+        for row in range(self.convo_table.rowCount()):
+            checkbox_widget = self.convo_table.cellWidget(row, 0)
+            if checkbox_widget:
+                checkbox = checkbox_widget.layout().itemAt(0).widget()
+                convo_num = self.convo_table.item(row, 1).text()
+                checkbox.setChecked(f"{convo_num}.json" == file_name)
+
+    def switch_conversation(self):
+        """Switch to the selected conversation"""
+        if self.current_conversation:
+            # Update config with current conversation
+            self.config['current_conversation'] = self.current_conversation
+            # Save config immediately
+            self.save_config()
+            # Reload the conversation in voice assistant
+            if hasattr(self.parent(), 'voice_assistant'):
+                self.parent().voice_assistant.reload_config()
+
+    def delete_conversation(self, file_name):
+        """Delete a conversation file"""
+        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        file_path = os.path.join(history_dir, file_name)
+        
+        try:
+            # Delete the file
+            os.remove(file_path)
+            
+            # Find another conversation or create new one
+            existing_files = [f for f in os.listdir(history_dir) if f.endswith('.json')]
+            if existing_files:
+                # Switch to the first available conversation
+                self.current_conversation = existing_files[0]
+                self.config['current_conversation'] = self.current_conversation
+                self.save_config()
+            else:
+                # No conversations left, create a new one
+                self.new_conversation()
+            
+            # Refresh the table
+            self.load_conversations()
+            
+            # Reload voice assistant
+            if hasattr(self.parent(), 'voice_assistant'):
+                self.parent().voice_assistant.reload_config()
+        except Exception as e:
+            logger.error(f"Error deleting conversation {file_name}: {e}")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Error", f"Could not delete conversation: {str(e)}")
+
+    def new_conversation(self):
+        """Start a new conversation"""
+        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        if not os.path.exists(history_dir):
+            os.makedirs(history_dir)
+            
+        # Find next available number
+        existing_files = [f for f in os.listdir(history_dir) if f.endswith('.json')]
+        next_num = 1
+        while f"{next_num}.json" in existing_files:
+            next_num += 1
+            
+        # Create new empty conversation file
+        new_file = f"{next_num}.json"
+        with open(os.path.join(history_dir, new_file), 'w') as f:
+            json.dump([], f)
+            
+        # Set as current conversation
+        self.current_conversation = new_file
+        self.config['current_conversation'] = new_file
+        self.save_config()
+        
+        # Refresh table
+        self.load_conversations()
+
+    def clear_all_conversations(self):
+        """Clear all conversation files"""
+        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        
+        try:
+            # Ask for confirmation
+            from PyQt5.QtWidgets import QMessageBox
+            reply = QMessageBox.question(self, "Clear All", 
+                                       "Are you sure you want to delete all conversations?",
+                                       QMessageBox.Yes | QMessageBox.No)
+            
+            if reply == QMessageBox.Yes:
+                # Delete all json files
+                for file in os.listdir(history_dir):
+                    if file.endswith('.json'):
+                        os.remove(os.path.join(history_dir, file))
+                
+                # Create and select new conversation
+                self.new_conversation()
+                
+                # Reload voice assistant
+                if hasattr(self.parent(), 'voice_assistant'):
+                    self.parent().voice_assistant.reload_config()
+        except Exception as e:
+            logger.error(f"Error clearing all conversations: {e}")
+            QMessageBox.warning(self, "Error", f"Could not clear all conversations: {str(e)}")
 
     def loadSavedSettings(self):
         """Load and apply saved settings"""
@@ -426,6 +632,10 @@ class SettingsDialog(QDialog):
             action: checkbox.isChecked()
             for action, checkbox in self.action_checkboxes.items()
         }
+        
+        # Save current conversation if one is selected
+        if self.current_conversation:
+            self.config['current_conversation'] = self.current_conversation
         
         # Save config
         self.save_config()

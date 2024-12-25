@@ -68,7 +68,37 @@ class VoiceAssistant:
     
     def load_conversation_history(self):
         """Load conversation history from file"""
-        history_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'conversation_history.json')
+        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        
+        # Create history directory if it doesn't exist
+        if not os.path.exists(history_dir):
+            os.makedirs(history_dir)
+            
+        # Check if there's a current conversation in config
+        current_convo = self.config.get('current_conversation')
+        if current_convo and os.path.exists(os.path.join(history_dir, current_convo)):
+            history_path = os.path.join(history_dir, current_convo)
+        else:
+            # Find latest conversation or create new one
+            existing_files = [f for f in os.listdir(history_dir) if f.endswith('.json')]
+            if existing_files:
+                latest_file = max(existing_files, key=lambda x: int(x.split('.')[0]))
+                history_path = os.path.join(history_dir, latest_file)
+            else:
+                # Create first conversation file
+                history_path = os.path.join(history_dir, '1.json')
+                with open(history_path, 'w') as f:
+                    json.dump([], f)
+            
+            # Update config with current conversation
+            self.config['current_conversation'] = os.path.basename(history_path)
+            try:
+                config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+                with open(config_path, 'w') as f:
+                    json.dump(self.config, f)
+            except Exception as e:
+                logger.error(f"Error saving config: {e}")
+        
         try:
             if os.path.exists(history_path) and self.config.get('save_conversation_history', True):
                 with open(history_path, 'r') as f:
@@ -87,7 +117,33 @@ class VoiceAssistant:
         if not self.config.get('save_conversation_history', True):
             return
             
-        history_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'conversation_history.json')
+        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        if not os.path.exists(history_dir):
+            os.makedirs(history_dir)
+            
+        # Use current conversation from config
+        current_convo = self.config.get('current_conversation')
+        if current_convo:
+            history_path = os.path.join(history_dir, current_convo)
+        else:
+            # Fallback to latest conversation
+            existing_files = [f for f in os.listdir(history_dir) if f.endswith('.json')]
+            if existing_files:
+                latest_file = max(existing_files, key=lambda x: int(x.split('.')[0]))
+                history_path = os.path.join(history_dir, latest_file)
+            else:
+                # Create first conversation file
+                history_path = os.path.join(history_dir, '1.json')
+                
+            # Update config with current conversation
+            self.config['current_conversation'] = os.path.basename(history_path)
+            try:
+                config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+                with open(config_path, 'w') as f:
+                    json.dump(self.config, f)
+            except Exception as e:
+                logger.error(f"Error saving config: {e}")
+            
         try:
             # Ensure we don't exceed max pairs
             max_pairs = self.config.get('max_conversation_pairs', 10)
