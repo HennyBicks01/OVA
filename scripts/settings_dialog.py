@@ -65,6 +65,72 @@ class SettingsDialog(QDialog):
         logger.info(f"Available presets: {presets}")
         return sorted(presets)
 
+    def get_available_voices(self):
+        """Get list of available voices"""
+        edge_voices = [
+            # Rename Ana to Ova
+            ("Ova", "en-US-AnaNeural"),
+            # US Voices
+            ("Aria (US)", "en-US-AriaNeural"),
+            ("Christopher (US)", "en-US-ChristopherNeural"),
+            ("Eric (US)", "en-US-EricNeural"),
+            ("Guy (US)", "en-US-GuyNeural"),
+            ("Jenny (US)", "en-US-JennyNeural"),
+            ("Michelle (US)", "en-US-MichelleNeural"),
+            ("Roger (US)", "en-US-RogerNeural"),
+            ("Steffan (US)", "en-US-SteffanNeural"),
+            # US Multilingual
+            ("Ava (US Multi)", "en-US-AvaMultilingualNeural"),
+            ("Andrew (US Multi)", "en-US-AndrewMultilingualNeural"),
+            ("Emma (US Multi)", "en-US-EmmaMultilingualNeural"),
+            ("Brian (US Multi)", "en-US-BrianMultilingualNeural"),
+            # UK Voices
+            ("Libby (UK)", "en-GB-LibbyNeural"),
+            ("Maisie (UK)", "en-GB-MaisieNeural"),
+            ("Ryan (UK)", "en-GB-RyanNeural"),
+            ("Sonia (UK)", "en-GB-SoniaNeural"),
+            ("Thomas (UK)", "en-GB-ThomasNeural"),
+            # Australian Voices
+            ("Natasha (AU)", "en-AU-NatashaNeural"),
+            ("William (AU)", "en-AU-WilliamNeural"),
+            # Canadian Voices
+            ("Clara (CA)", "en-CA-ClaraNeural"),
+            ("Liam (CA)", "en-CA-LiamNeural"),
+            # Irish Voices
+            ("Connor (IE)", "en-IE-ConnorNeural"),
+            ("Emily (IE)", "en-IE-EmilyNeural"),
+            # Indian Voices
+            ("Neerja (IN)", "en-IN-NeerjaNeural"),
+            ("Neerja Expressive (IN)", "en-IN-NeerjaExpressiveNeural"),
+            ("Prabhat (IN)", "en-IN-PrabhatNeural"),
+            # South African Voices
+            ("Leah (ZA)", "en-ZA-LeahNeural"),
+            ("Luke (ZA)", "en-ZA-LukeNeural"),
+            # Other Regional Voices
+            ("Asilia (KE)", "en-KE-AsiliaNeural"),
+            ("Chilemba (KE)", "en-KE-ChilembaNeural"),
+            ("Mitchell (NZ)", "en-NZ-MitchellNeural"),
+            ("Molly (NZ)", "en-NZ-MollyNeural"),
+            ("Abeo (NG)", "en-NG-AbeoNeural"),
+            ("Ezinne (NG)", "en-NG-EzinneNeural"),
+            ("James (PH)", "en-PH-JamesNeural"),
+            ("Rosa (PH)", "en-PH-RosaNeural"),
+            ("Luna (SG)", "en-SG-LunaNeural"),
+            ("Wayne (SG)", "en-SG-WayneNeural"),
+            ("Elimu (TZ)", "en-TZ-ElimuNeural"),
+            ("Imani (TZ)", "en-TZ-ImaniNeural")
+        ]
+        
+        # Get Windows voices
+        try:
+            engine = pyttsx3.init()
+            windows_voices = [(voice.name, voice.id) for voice in engine.getProperty('voices')]
+            engine.stop()
+        except:
+            windows_voices = []
+            
+        return edge_voices + windows_voices
+    
     def initUI(self):
         layout = QVBoxLayout()
         
@@ -239,12 +305,9 @@ class SettingsDialog(QDialog):
     def onVoiceTypeChanged(self, voice_type):
         self.voice_selection.clear()
         if voice_type == "Azure Voice":
-            self.voice_selection.addItems([
-                "en-US-AnaNeural",
-                "en-US-JennyNeural",
-                "en-US-SaraNeural",
-                "en-US-AmyNeural"
-            ])
+            voices = self.get_available_voices()
+            azure_voices = [voice for voice in voices if voice[1].startswith("en-")]
+            self.voice_selection.addItems([voice[0] for voice in azure_voices])
         else:  # Windows Voice
             import pyttsx3
             engine = pyttsx3.init()
@@ -282,15 +345,16 @@ class SettingsDialog(QDialog):
         voice = self.voice_selection.currentText()
         
         if voice_type == "Azure Voice":
-            return voice
+            voices = self.get_available_voices()
+            azure_voices = [voice for voice in voices if voice[1].startswith("en-")]
+            for v in azure_voices:
+                if v[0] == voice:
+                    return v[1]
         else:
             # For Windows voices, we need to find the matching voice ID
-            import pyttsx3
-            engine = pyttsx3.init()
-            voices = engine.getProperty('voices')
-            for v in voices:
-                if v.name == voice:
-                    engine.stop()
-                    return v.id
-            engine.stop()
+            voices = self.get_available_voices()
+            windows_voices = [voice for voice in voices if not voice[1].startswith("en-")]
+            for v in windows_voices:
+                if v[0] == voice:
+                    return v[1]
             return None

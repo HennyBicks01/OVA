@@ -55,9 +55,13 @@ class DisplayManager:
             if self.chat_display:
                 self.chat_display.hide()
     
-    def show_message(self, text, user_text=""):
+    def show_message(self, message_data, user_text=""):
         """Display a message in the current mode"""
         logger.info(f"Showing message in mode {self.current_mode}")
+        
+        # Handle tuple of (response, last_text) or just text
+        text = message_data[0] if isinstance(message_data, tuple) else message_data
+        user_text = message_data[1] if isinstance(message_data, tuple) else user_text
         
         if self.current_mode == "chat":
             if not self.chat_display:

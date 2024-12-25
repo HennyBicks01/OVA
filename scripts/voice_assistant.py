@@ -362,11 +362,11 @@ class VoiceAssistant:
             self.save_conversation_history()
             
             if self.callback:
-                self.callback(response_text)
+                self.callback((response_text, text))  # Pass tuple of (response, last_text)
         except Exception as e:
             print(f"Error generating response: {e}")
             if self.callback:
-                self.callback("I'm sorry Miss Kathy, my little owl brain is having trouble thinking right now. Could you please make sure my friend Ollama is running?")
+                self.callback(("I'm sorry Miss Kathy, my little owl brain is having trouble thinking right now. Could you please make sure my friend Ollama is running?", text))
 
     def test_ollama(self):
         """Test if Ollama is running and check for llama3.2"""

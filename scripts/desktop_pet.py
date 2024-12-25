@@ -55,7 +55,7 @@ class ResponseHandler(QObject):
         super().__init__()
 
 class OwlPet(QWidget):
-    handle_response_signal = pyqtSignal(str)
+    handle_response_signal = pyqtSignal(object)  # Changed from str to object to handle tuples
     start_thinking_signal = pyqtSignal()
     start_speaking_signal = pyqtSignal()
     stop_speaking_signal = pyqtSignal()
@@ -549,15 +549,18 @@ class OwlPet(QWidget):
     def handle_response_gui(self, response):
         """Handle the response in the GUI thread"""
         try:
+            # Extract response text and user text from tuple if present
+            response_text = response[0] if isinstance(response, tuple) else response
+            
             # Show the message in the current display mode
             self.show_speech_bubble(response)
             # Change from thinking to speaking
             self.state_change_signal.emit("speaking")
             # Speak the response
-            self.speak_response(response)
+            self.speak_response(response_text)
             
             # Check if response ends with a question mark
-            if response.strip().endswith('?') and not self.waiting_for_response:
+            if response_text.strip().endswith('?') and not self.waiting_for_response:
                 self.waiting_for_response = True
                 # Connect to speak finished to start listening
                 self.tts_engine.speak_finished.connect(self.handle_question_response)
@@ -595,7 +598,9 @@ class OwlPet(QWidget):
     
     def speak_response(self, response):
         """Speak the response using TTS"""
-        self.tts_engine.speak(response)
+        # Extract response text if it's a tuple
+        response_text = response[0] if isinstance(response, tuple) else response
+        self.tts_engine.speak(response_text)
     
     def on_speak_done(self):
         """Handle completion of speaking in GUI thread"""
