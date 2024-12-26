@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QComboBox, 
                              QLabel, QPushButton, QGroupBox, QTabWidget, QWidget, QSpinBox, 
-                             QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView)
+                             QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit)
 from PyQt5.QtCore import Qt
 import json
 import os
@@ -39,6 +39,10 @@ class SettingsDialog(QDialog):
                 'look_around': True,
                 'dance': True,
                 'screech': True
+            },
+            'ai_provider': 'ollama',  # Default to ollama
+            'ai_settings': {
+                'google_api_key': ''  # Store API key if using Google
             }
         }
         
@@ -67,7 +71,7 @@ class SettingsDialog(QDialog):
     
     def get_available_presets(self):
         """Get list of available preset files"""
-        presets_dir = os.path.join(os.path.dirname(__file__), 'presets')
+        presets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'presets')
         presets = []
         if os.path.exists(presets_dir):
             for file in os.listdir(presets_dir):
@@ -164,6 +168,34 @@ class SettingsDialog(QDialog):
         
         preset_group.setLayout(preset_group_layout)
         general_layout.addWidget(preset_group)
+        
+        # AI Provider Group
+        ai_group = QGroupBox("AI Provider")
+        ai_group_layout = QVBoxLayout()
+        
+        # Provider Selection
+        provider_layout = QHBoxLayout()
+        self.ai_provider = QComboBox()
+        self.ai_provider.addItems(["Ollama", "Google"])
+        self.ai_provider.currentTextChanged.connect(self.onAIProviderChanged)
+        provider_layout.addWidget(QLabel("Provider:"))
+        provider_layout.addWidget(self.ai_provider)
+        ai_group_layout.addLayout(provider_layout)
+        
+        # Google API Key input (hidden by default)
+        self.api_key_layout = QHBoxLayout()
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setEchoMode(QLineEdit.Password)
+        self.api_key_input.setPlaceholderText("Enter Google API Key")
+        self.api_key_layout.addWidget(QLabel("API Key:"))
+        self.api_key_layout.addWidget(self.api_key_input)
+        self.api_key_widget = QWidget()
+        self.api_key_widget.setLayout(self.api_key_layout)
+        self.api_key_widget.hide()
+        ai_group_layout.addWidget(self.api_key_widget)
+        
+        ai_group.setLayout(ai_group_layout)
+        general_layout.addWidget(ai_group)
         
         # Display Mode Group
         display_group = QGroupBox("Display Settings")
@@ -595,6 +627,19 @@ class SettingsDialog(QDialog):
         if index >= 0:
             self.voice_selection.setCurrentIndex(index)
 
+        # Set AI provider
+        provider = self.config.get('ai_provider', 'ollama').capitalize()
+        index = self.ai_provider.findText(provider)
+        if index >= 0:
+            self.ai_provider.setCurrentIndex(index)
+        
+        # Set API key if saved
+        if 'ai_settings' in self.config and 'google_api_key' in self.config['ai_settings']:
+            self.api_key_input.setText(self.config['ai_settings']['google_api_key'])
+        
+        # Show/hide API key input based on provider
+        self.onAIProviderChanged(provider)
+
     def onVoiceTypeChanged(self, voice_type):
         self.voice_selection.clear()
         if voice_type == "Azure Voice":
@@ -608,6 +653,13 @@ class SettingsDialog(QDialog):
             self.voice_selection.addItems([voice.name for voice in voices])
             engine.stop()
             
+    def onAIProviderChanged(self, provider):
+        """Handle AI provider change"""
+        if provider.lower() == 'google':
+            self.api_key_widget.show()
+        else:
+            self.api_key_widget.hide()
+            
     def accept(self):
         """Called when Save button is clicked"""
         logger.info("Save button clicked")
@@ -617,6 +669,12 @@ class SettingsDialog(QDialog):
         self.config['voice_name'] = self.getSelectedVoice()
         self.config['sleep_timer'] = self.sleep_timer.value()
         self.config['personality_preset'] = self.preset_selection.currentText()
+        
+        # Save AI settings
+        self.config['ai_provider'] = self.ai_provider.currentText().lower()
+        if 'ai_settings' not in self.config:
+            self.config['ai_settings'] = {}
+        self.config['ai_settings']['google_api_key'] = self.api_key_input.text()
         
         # Map display mode text to config value
         mode_map = {'Speech Bubble': 'bubble', 'Chat Window': 'chat', 'No Display': 'none'}

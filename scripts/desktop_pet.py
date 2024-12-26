@@ -14,6 +14,11 @@ import time
 import logging
 import pygame
 
+# Add scripts directory to Python path
+scripts_dir = os.path.dirname(os.path.abspath(__file__))
+if scripts_dir not in sys.path:
+    sys.path.append(scripts_dir)
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

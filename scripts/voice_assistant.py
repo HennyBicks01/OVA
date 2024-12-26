@@ -1,16 +1,21 @@
 import speech_recognition as sr
 import threading
 import time
-from ollama import Client
 import os
 import sys
 import json
 import logging
 import pygame
+from AI.AI_manager import AIManager
+from AI.ollama import OllamaProvider
+from dotenv import load_dotenv
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 def get_resource_path(relative_path):
     """Get the correct resource path whether running as script or frozen exe"""
@@ -27,7 +32,7 @@ class VoiceAssistant:
         self.callback = callback
         self.recognizer = sr.Recognizer()
         self.is_listening = False
-        self.client = Client(host='http://localhost:11434')
+        self.ai_manager = AIManager()  # Default to Ollama
         self.last_text = ""  # Store the last recognized text
         self.mic = None  # Microphone instance
         self.listen_thread = None
@@ -171,6 +176,11 @@ class VoiceAssistant:
         """Reload configuration"""
         self.config = self.load_config()
         logger.info(f"Reloaded voice assistant config: {self.config}")
+        
+        # Update AI provider if specified in config
+        if 'ai_provider' in self.config:
+            self.ai_manager.set_provider(self.config['ai_provider'])
+        
         # Reload conversation history with new settings
         self.load_conversation_history()
 
@@ -370,7 +380,7 @@ class VoiceAssistant:
                 self.stop_direct_listening()
 
     def _generate_response(self, text):
-        """Generate a response using Ollama with llama3.2"""
+        """Generate a response using the configured AI provider"""
         try:
             print("Generating response for:", text)
             
@@ -378,8 +388,8 @@ class VoiceAssistant:
             preset = self.config.get('personality_preset', 'ova')
             logger.info(f"Using personality preset: {preset}")
             
-            # Load system prompt from preset file
-            preset_file = get_resource_path(os.path.join('presets', f'{preset}.txt'))
+            # Load system prompt from preset file in assets directory
+            preset_file = get_resource_path(os.path.join('assets', 'presets', f'{preset}.txt'))
             system_prompt = ""
             if os.path.exists(preset_file):
                 with open(preset_file, 'r') as f:
@@ -388,58 +398,36 @@ class VoiceAssistant:
             else:
                 logger.warning(f"Warning: Preset file {preset_file} not found")
             
-            # Build messages array with history
-            messages = [{
-                'role': 'system',
-                'content': system_prompt
-            }]
+            # Get response using AI manager
+            response_text = self.ai_manager.get_response(
+                text,
+                system_prompt,
+                self.conversation_history
+            )
             
-            # Add conversation history
-            for msg in self.conversation_history:
-                messages.append(msg)
-            
-            # Add current user message
-            messages.append({
-                'role': 'user',
-                'content': text
-            })
-            
-            # Generate response using llama3.2 with selected preset and history
-            response = self.client.chat(model='llama3.2:latest', messages=messages)
-            
-            response_text = response['message']['content']
             print("Generated response:", response_text)
             
-            # Add the exchange to conversation history
-            self.conversation_history.append({
-                'role': 'user',
-                'content': text
-            })
-            self.conversation_history.append({
-                'role': 'assistant',
-                'content': response_text
-            })
+            # Update conversation history from AI manager
+            self.conversation_history = self.ai_manager.get_conversation_history()
             
             # Trim history if needed
             max_pairs = self.config.get('max_conversation_pairs', 10)
             if len(self.conversation_history) > max_pairs * 2:
                 self.conversation_history = self.conversation_history[-(max_pairs * 2):]
+                self.ai_manager.set_conversation_history(self.conversation_history)
             
             # Save updated history
             self.save_conversation_history()
             
             if self.callback:
-                self.callback((response_text, text))  # Pass tuple of (response, last_text)
+                self.callback((response_text, text))
         except Exception as e:
             print(f"Error generating response: {e}")
             if self.callback:
-                self.callback(("I'm sorry Miss Kathy, my little owl brain is having trouble thinking right now. Could you please make sure my friend Ollama is running?", text))
+                self.callback(("I'm sorry, my little owl brain is having trouble thinking right now. Could you please try again?", text))
 
     def test_ollama(self):
         """Test if Ollama is running and check for llama3.2"""
-        try:
-            models = self.client.list()
-            if not any(model['name'] == 'llama3.2:latest' for model in models['models']):
-                print("Warning: llama3.2 model not found. Please run: ollama pull llama3.2")
-        except Exception as e:
-            print("Error connecting to Ollama. Make sure it's running:", e)
+        if isinstance(self.ai_manager.current_provider, OllamaProvider):
+            return self.ai_manager.current_provider.test_connection()
+        return True  # Skip test if not using Ollama
