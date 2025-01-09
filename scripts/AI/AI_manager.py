@@ -9,15 +9,24 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class AIManager:
-    def __init__(self, provider_name="ollama"):
+    def __init__(self, provider_name="ollama", google_api_key=None):
         """Initialize AI manager with specified provider"""
-        load_dotenv()
+        load_dotenv()  # Keep this for any other env vars that might be needed
+        
+        # Initialize providers
         self.providers = {
             "ollama": OllamaProvider(),
-            "google": GoogleProvider(api_key=os.getenv('GEMINI_API_KEY'))
         }
+        
+        # Add Google provider if API key is provided
+        if google_api_key:
+            self.providers["google"] = GoogleProvider(api_key=google_api_key)
+        
+        # Set current provider
         self.current_provider = self.providers.get(provider_name)
         if not self.current_provider:
+            if provider_name == "google" and not google_api_key:
+                raise ValueError("Google Gemini API key not provided. Please check your configuration.")
             logger.warning(f"Provider {provider_name} not found, falling back to ollama")
             self.current_provider = self.providers["ollama"]
         
@@ -25,6 +34,8 @@ class AIManager:
     
     def set_provider(self, provider_name):
         """Change the AI provider"""
+        if provider_name == "google" and "google" not in self.providers:
+            raise ValueError("Google Gemini API key not found. Please set GEMINI_API_KEY in your environment.")
         if provider_name in self.providers:
             self.current_provider = self.providers[provider_name]
             return True

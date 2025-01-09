@@ -7,3 +7,4 @@ pyttsx3
 ollama
 edge-tts
 python-dotenv
+kivy==2.2.1

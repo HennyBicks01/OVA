@@ -21,6 +21,8 @@ class GoogleProvider:
         
         # Initialize the model if API key is provided
         if api_key:
+            logger.info("Initializing Google Gemini model..." + api_key)
+
             self.initialize_model(api_key)
 
     def initialize_model(self, api_key):
@@ -45,18 +47,23 @@ class GoogleProvider:
             self.initialize_model(self.api_key)
         
         try:
-            # If there's a new conversation history, restart the chat
+            # If there's a new conversation history, restart the chat with the entire history
             if conversation_history is not None and conversation_history != self.conversation_history:
                 self.conversation_history = conversation_history
-                self.chat_session = self.model.start_chat(history=[])
                 
-                # Add system prompt if provided
+                # Convert history to Gemini format
+                history = []
                 if system_prompt:
-                    self.chat_session.send_message(system_prompt)
+                    history.append({"role": "user", "parts": [system_prompt]})
+                    history.append({"role": "model", "parts": ["Understood."]})
                 
-                # Replay conversation history
+                # Add conversation history
                 for msg in conversation_history:
-                    self.chat_session.send_message(msg['content'])
+                    role = "user" if msg['role'] == 'user' else "model"
+                    history.append({"role": role, "parts": [msg['content']]})
+                
+                # Start new chat with full history
+                self.chat_session = self.model.start_chat(history=history)
             
             # Send the user's prompt and get response
             response = self.chat_session.send_message(prompt)

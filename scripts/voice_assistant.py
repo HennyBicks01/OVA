@@ -28,11 +28,12 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class VoiceAssistant:
-    def __init__(self, callback=None):
+    def __init__(self, config=None, callback=None):
+        """Initialize voice assistant"""
+        self.config = config or self.load_config()
         self.callback = callback
         self.recognizer = sr.Recognizer()
         self.is_listening = False
-        self.ai_manager = AIManager()  # Default to Ollama
         self.last_text = ""  # Store the last recognized text
         self.mic = None  # Microphone instance
         self.listen_thread = None
@@ -41,8 +42,13 @@ class VoiceAssistant:
         self.no_response_timer = None
         self.conversation_history = []  # Store conversation history
         
-        # Load config and history
-        self.config = self.load_config()
+        # Initialize AI manager with config after config is loaded
+        self.ai_manager = AIManager(
+            provider_name=self.config.get('ai_provider', 'ollama'),
+            google_api_key=self.config.get('ai_settings', {}).get('google_api_key')
+        )  # Default to Ollama
+        
+        # Load conversation history
         self.load_conversation_history()
         
         # Sound file paths and initialization
@@ -63,7 +69,7 @@ class VoiceAssistant:
         
         # Optimize recognition settings for better wake word detection
         self.recognizer.dynamic_energy_threshold = False
-        self.recognizer.energy_threshold = 800  # More sensitive for wake word
+        self.recognizer.energy_threshold = 400  # More sensitive for wake word
         self.recognizer.pause_threshold = 1.5  # Balanced pause threshold
         self.recognizer.phrase_threshold = 0.05  # More sensitive phrase detection
         self.recognizer.non_speaking_duration = 0.5  # Shorter non-speaking duration
