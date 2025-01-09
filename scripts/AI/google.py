@@ -67,7 +67,7 @@ class GoogleProvider:
             
             # Send the user's prompt and get response
             response = self.chat_session.send_message(prompt)
-            return response.text
+            return response.text.strip()
             
         except Exception as e:
             logger.error(f"Error getting response from Google Gemini: {e}")

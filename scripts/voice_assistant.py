@@ -69,10 +69,10 @@ class VoiceAssistant:
         
         # Optimize recognition settings for better wake word detection
         self.recognizer.dynamic_energy_threshold = False
-        self.recognizer.energy_threshold = 400  # More sensitive for wake word
+        self.recognizer.energy_threshold = 300  # More sensitive for wake word
         self.recognizer.pause_threshold = 1.5  # Balanced pause threshold
-        self.recognizer.phrase_threshold = 0.05  # More sensitive phrase detection
-        self.recognizer.non_speaking_duration = 0.5  # Shorter non-speaking duration
+        self.recognizer.phrase_threshold = 0.01  # More sensitive phrase detection
+        self.recognizer.non_speaking_duration = .7  # Shorter non-speaking duration
         self.recognizer.operation_timeout = None  # No timeout
 
     def load_config(self):
@@ -218,7 +218,7 @@ class VoiceAssistant:
         wake_words = [
             "hey ova", "hey nova", "hey bova", "hey over", 
             "jehovah", "hanover", "hangover", "hey eva",
-            "hey oppa", "hey google", "hey opa"
+            "hey oppa", "hey google", "hey opa", "okay over", "okay ova", "hey al"
         ]
         
         with self.mic as source:
