@@ -12,6 +12,7 @@ class OllamaProvider:
     def get_response(self, text, system_prompt="", conversation_history=None):
         """Get response from Ollama"""
         try:
+            logger.info(f"Getting response from Ollama using model: {self.model}")
             # Build messages array
             messages = []
             

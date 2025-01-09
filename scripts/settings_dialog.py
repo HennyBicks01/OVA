@@ -5,6 +5,8 @@ from PyQt5.QtCore import Qt
 import json
 import os
 import logging
+from PyQt5.QtGui import QDesktopServices
+from PyQt5.QtCore import QUrl
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -181,6 +183,13 @@ class SettingsDialog(QDialog):
         provider_layout.addWidget(QLabel("Provider:"))
         provider_layout.addWidget(self.ai_provider)
         ai_group_layout.addLayout(provider_layout)
+
+        # Model Selection
+        model_layout = QHBoxLayout()
+        self.model_selection = QComboBox()
+        model_layout.addWidget(QLabel("Model:"))
+        model_layout.addWidget(self.model_selection)
+        ai_group_layout.addLayout(model_layout)
         
         # Google API Key input (hidden by default)
         self.api_key_layout = QHBoxLayout()
@@ -189,6 +198,12 @@ class SettingsDialog(QDialog):
         self.api_key_input.setPlaceholderText("Enter Google API Key")
         self.api_key_layout.addWidget(QLabel("API Key:"))
         self.api_key_layout.addWidget(self.api_key_input)
+        
+        # Add Get API Key button
+        get_api_key_btn = QPushButton("Get API Key")
+        get_api_key_btn.clicked.connect(self.open_google_api_page)
+        self.api_key_layout.addWidget(get_api_key_btn)
+        
         self.api_key_widget = QWidget()
         self.api_key_widget.setLayout(self.api_key_layout)
         self.api_key_widget.hide()
@@ -651,6 +666,15 @@ class SettingsDialog(QDialog):
         if index >= 0:
             self.ai_provider.setCurrentIndex(index)
         
+        # Set model if saved
+        if 'ai_settings' in self.config:
+            saved_model = self.config['ai_settings'].get('model')
+            if saved_model:
+                # Model list will be populated by onAIProviderChanged
+                # We'll set the saved model after a short delay
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(100, lambda: self.model_selection.setCurrentText(saved_model))
+        
         # Set API key if saved
         if 'ai_settings' in self.config and 'google_api_key' in self.config['ai_settings']:
             self.api_key_input.setText(self.config['ai_settings']['google_api_key'])
@@ -675,9 +699,32 @@ class SettingsDialog(QDialog):
         """Handle AI provider change"""
         if provider.lower() == 'google':
             self.api_key_widget.show()
+            # Set Google models
+            self.model_selection.clear()
+            self.model_selection.addItems(["gemini-1.5-flash-8b", "gemini-1.5-flash"])
         else:
             self.api_key_widget.hide()
+            # Get Ollama models
+            try:
+                import subprocess
+                result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    models = [line.split()[0] for line in result.stdout.strip().split('\n')[1:]]
+                    self.model_selection.clear()
+                    self.model_selection.addItems(models)
+                else:
+                    self.model_selection.clear()
+                    self.model_selection.addItem("llama2:latest")  # Default fallback
+            except Exception as e:
+                logger.error(f"Error getting Ollama models: {e}")
+                self.model_selection.clear()
+                self.model_selection.addItem("llama2:latest")  # Default fallback
             
+    def open_google_api_page(self):
+        """Open Google AI Studio API key page"""
+        url = QUrl("https://aistudio.google.com/app/apikey")
+        QDesktopServices.openUrl(url)
+
     def accept(self):
         """Called when Save button is clicked"""
         logger.info("Save button clicked")
@@ -693,6 +740,7 @@ class SettingsDialog(QDialog):
         if 'ai_settings' not in self.config:
             self.config['ai_settings'] = {}
         self.config['ai_settings']['google_api_key'] = self.api_key_input.text()
+        self.config['ai_settings']['model'] = self.model_selection.currentText()
         
         # Map display mode text to config value
         mode_map = {'Speech Bubble': 'bubble', 'Chat Window': 'chat', 'No Display': 'none'}

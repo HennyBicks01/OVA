@@ -5,8 +5,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 class GoogleProvider:
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, model_name="gemini-1.5-flash-8b"):
         self.api_key = api_key
+        self.model_name = model_name
         self.conversation_history = []
         self.chat_session = None
         
@@ -30,7 +31,7 @@ class GoogleProvider:
         try:
             genai.configure(api_key=api_key)
             self.model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash-8b",
+                model_name=self.model_name,
                 generation_config=self.generation_config
             )
             self.chat_session = self.model.start_chat(history=[])
@@ -47,6 +48,7 @@ class GoogleProvider:
             self.initialize_model(self.api_key)
         
         try:
+            logger.info(f"Getting response from Google using model: {self.model_name}")
             # If there's a new conversation history, restart the chat with the entire history
             if conversation_history is not None and conversation_history != self.conversation_history:
                 self.conversation_history = conversation_history

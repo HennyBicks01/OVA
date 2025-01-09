@@ -45,7 +45,8 @@ class VoiceAssistant:
         # Initialize AI manager with config after config is loaded
         self.ai_manager = AIManager(
             provider_name=self.config.get('ai_provider', 'ollama'),
-            google_api_key=self.config.get('ai_settings', {}).get('google_api_key')
+            google_api_key=self.config.get('ai_settings', {}).get('google_api_key'),
+            model=self.config.get('ai_settings', {}).get('model')
         )  # Default to Ollama
         
         # Load conversation history
@@ -183,11 +184,14 @@ class VoiceAssistant:
         self.config = self.load_config()
         logger.info(f"Reloaded voice assistant config: {self.config}")
         
-        # Update AI provider if specified in config
-        if 'ai_provider' in self.config:
-            self.ai_manager.set_provider(self.config['ai_provider'])
+        # Reinitialize AI manager with new config
+        self.ai_manager = AIManager(
+            provider_name=self.config.get('ai_provider', 'ollama'),
+            google_api_key=self.config.get('ai_settings', {}).get('google_api_key'),
+            model=self.config.get('ai_settings', {}).get('model')
+        )
         
-        # Reload conversation history with new settings
+        # Reload conversation history
         self.load_conversation_history()
 
     def start_listening(self):

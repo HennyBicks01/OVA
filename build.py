@@ -2,27 +2,38 @@ import PyInstaller.__main__
 import os
 import json
 import sys
+import shutil
 from multiprocessing import cpu_count
 
 def create_default_config():
+    """Create default configuration"""
     return {
-        'voice_type': 'Azure Voice',
-        'voice_name': 'en-US-AnaNeural', 
-        'sleep_timer': 30,
         'personality_preset': 'ova',
+        'voice_type': 'Azure Voice',
+        'voice_name': 'en-US-AriaNeural',
+        'sleep_timer': 60,
         'display_mode': 'bubble',
+        'save_conversation_history': True,
+        'max_conversation_pairs': 5,
         'enable_random_actions': True,
         'min_action_interval': 5,
         'max_action_interval': 10,
         'enabled_actions': {
-            'take_flight': True,
+            'take_flight': False,
             'look_around': True,
             'dance': True,
             'screech': True
+        },
+        'ai_provider': 'google',
+        'ai_settings': {
+            'google_api_key': 'YOUR_API_KEY',
+            'google_model': 'gemini-1.5-flash-8b',
+            'ollama_model': 'llama3.2:1b'
         }
     }
 
-def create_spec_content(script_path, current_dir, datas, icon_path, console=False):
+def create_spec_content(script_path, current_dir, icon_path, console=False):
+    """Create PyInstaller spec file content"""
     exe_name = 'OVA-debug' if console else 'OVA'
     return f'''
 # -*- mode: python ; coding: utf-8 -*-
@@ -30,7 +41,8 @@ def create_spec_content(script_path, current_dir, datas, icon_path, console=Fals
 block_cipher = None
 
 assets_dir = os.path.join(r'{current_dir}', 'assets')
-presets_dir = os.path.join(r'{current_dir}', 'scripts', 'presets')
+presets_dir = os.path.join(r'{current_dir}', 'assets', 'presets')
+history_dir = os.path.join(r'{current_dir}', 'history')
 
 # Collect all asset files
 asset_datas = []
@@ -40,22 +52,15 @@ for root, dirs, files in os.walk(assets_dir):
         dst = os.path.relpath(root, r'{current_dir}')
         asset_datas.append((src, dst))
 
-# Collect all preset files
-preset_datas = []
-for root, dirs, files in os.walk(presets_dir):
-    for file in files:
-        src = os.path.join(root, file)
-        dst = 'presets'  # All presets go in the presets directory
-        preset_datas.append((src, dst))
-
 a = Analysis(
     [r'{script_path}'],
     pathex=[r'{current_dir}'],
     binaries=[],
-    datas=[*asset_datas, *preset_datas, (r'{current_dir}/config.json', '.')],
+    datas=asset_datas,
     hiddenimports=[
         'PyQt5.QtWidgets', 'PyQt5.QtCore', 'PyQt5.QtGui',
-        'edge_tts', 'speech_recognition', 'ollama', 'PyQt5.sip'
+        'edge_tts', 'speech_recognition', 'ollama', 'PyQt5.sip',
+        'pygame'
     ],
     hookspath=[],
     hooksconfig={{}},
@@ -100,74 +105,85 @@ exe = EXE(
 def verify_required_files():
     """Verify all required asset directories and files exist"""
     current_dir = os.path.abspath(os.path.dirname(__file__))
-    required_dirs = ['assets/idle', 'assets/sounds', 'scripts']
+    required_dirs = ['assets/idle', 'assets/sounds', 'scripts', 'assets/presets']
     
     for dir_path in required_dirs:
         full_path = os.path.join(current_dir, dir_path)
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"Missing required directory: {dir_path}")
 
-def collect_all_files(directory):
-    """Recursively collect all files in directory with proper PyInstaller paths"""
-    files = []
-    base_dir = os.path.dirname(__file__)
-    for root, _, filenames in os.walk(directory):
-        for filename in filenames:
-            if not any(filename.endswith(ext) for ext in ['.pyc', '.pyo', '.pyd']):
-                source = os.path.join(root, filename)
-                # Calculate destination path relative to the base directory
-                dest = os.path.relpath(root, base_dir)
-                # Create tuple in PyInstaller format
-                files.append((source, dest))
-    return files
-
-def build_exe():
-    # Verify required files
-    verify_required_files()
-    
-    # Setup paths
+def setup_config():
+    """Set up configuration file"""
     current_dir = os.path.abspath(os.path.dirname(__file__))
-    script_path = os.path.join(current_dir, "scripts", "desktop_pet.py")
-    icon_path = os.path.join(current_dir, "assets", "idle", "1.png")
+    config_path = os.path.join(current_dir, 'config.json')
     
-    # Create config
-    config_path = os.path.join(current_dir, "config.json")
+    # Create default config
+    config = create_default_config()
+    
+    # Save config file
     with open(config_path, 'w') as f:
-        json.dump(create_default_config(), f, indent=4)
-
-    # Build only debug version during development, both for production
-    versions = [True] if '--debug-only' in sys.argv else [False, True]
+        json.dump(config, f, indent=4)
     
-    for console in versions:
-        spec_content = create_spec_content(script_path, current_dir, [], icon_path, console)
-        spec_name = 'OVA-debug.spec' if console else 'OVA.spec'
-        spec_path = os.path.join(current_dir, spec_name)
+    print(f"Created default config at {config_path}")
+
+def build():
+    """Build the executable"""
+    try:
+        # Get current directory
+        current_dir = os.path.abspath(os.path.dirname(__file__))
         
-        with open(spec_path, 'w') as f:
-            f.write(spec_content)
-
-        PyInstaller.__main__.run([
-            spec_path,
-            '--clean',
-            '--log-level=DEBUG'
-        ])
-
-        os.remove(spec_path)
-
-    # Setup dist directory
-    dist_dir = os.path.join(current_dir, 'dist')
-    history_dir = os.path.join(dist_dir, 'history')
-    os.makedirs(history_dir, exist_ok=True)
-    
-    os.remove(config_path)
-    
-    print("\nBuild complete!")
-    if '--debug-only' in sys.argv:
-        print("Debug version created in dist folder: OVA-debug.exe")
-    else:
-        print("Two versions have been created in the dist folder:")
-        print("1. OVA.exe - Regular version without console")
-        print("2. OVA-debug.exe - Debug version with console window")
+        # Verify required files
+        verify_required_files()
+        
+        # Set up paths
+        script_path = os.path.join(current_dir, 'scripts', 'desktop_pet.py')
+        icon_path = os.path.join(current_dir, 'assets', 'tray_icon.ico')
+        
+        # Set up config
+        setup_config()
+        
+        # Determine if building debug version only
+        debug_only = '--debug-only' in sys.argv
+        versions = [True] if debug_only else [False, True]
+        
+        for console in versions:
+            # Create spec file
+            spec_name = 'OVA-debug.spec' if console else 'OVA.spec'
+            spec_path = os.path.join(current_dir, spec_name)
+            
+            spec_content = create_spec_content(script_path, current_dir, icon_path, console)
+            with open(spec_path, 'w') as f:
+                f.write(spec_content)
+            
+            # Build with PyInstaller
+            PyInstaller.__main__.run([
+                spec_path,
+                '--clean',
+                '--noconfirm',
+            ])
+            
+            # Clean up spec file
+            os.remove(spec_path)
+        
+        # Copy config to dist directory
+        config_src = os.path.join(current_dir, 'config.json')
+        config_dst = os.path.join(current_dir, 'dist', 'config.json')
+        shutil.copy2(config_src, config_dst)
+        
+        # Create history directory in dist
+        history_dir = os.path.join(current_dir, 'dist', 'history')
+        os.makedirs(history_dir, exist_ok=True)
+        
+        if debug_only:
+            print("\nBuild complete! Debug version created in dist folder: OVA-debug.exe")
+        else:
+            print("\nBuild complete! Two versions have been created in the dist folder:")
+            print("1. OVA.exe - Regular version without console")
+            print("2. OVA-debug.exe - Debug version with console window")
+        
+    except Exception as e:
+        print(f"Build failed: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
-    build_exe()
+    build()

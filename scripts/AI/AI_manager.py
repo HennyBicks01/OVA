@@ -9,18 +9,18 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class AIManager:
-    def __init__(self, provider_name="ollama", google_api_key=None):
+    def __init__(self, provider_name="ollama", google_api_key=None, model=None):
         """Initialize AI manager with specified provider"""
         load_dotenv()  # Keep this for any other env vars that might be needed
         
         # Initialize providers
         self.providers = {
-            "ollama": OllamaProvider(),
+            "ollama": OllamaProvider(model=model if model else "llama2:latest"),
         }
         
         # Add Google provider if API key is provided
         if google_api_key:
-            self.providers["google"] = GoogleProvider(api_key=google_api_key)
+            self.providers["google"] = GoogleProvider(api_key=google_api_key, model_name=model if model else "gemini-1.5-flash-8b")
         
         # Set current provider
         self.current_provider = self.providers.get(provider_name)
