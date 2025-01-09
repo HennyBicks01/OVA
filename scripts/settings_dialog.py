@@ -592,8 +592,15 @@ class SettingsDialog(QDialog):
 
     def loadSavedSettings(self):
         """Load and apply saved settings"""
-        voice_type = self.config.get('voice_type', 'Azure Voice')
-        voice_name = self.config.get('voice_name', 'en-US-AnaNeural')
+        # Get voice settings from config, only default to Ova if no voice is set
+        voice_type = self.config.get('voice_type')
+        voice_name = self.config.get('voice_name')
+        
+        # If no voice settings exist, default to Ova
+        if not voice_type or not voice_name:
+            voice_type = 'Azure Voice'
+            voice_name = 'en-US-AnaNeural'
+            
         preset = self.config.get('personality_preset', 'ova')
         display_mode = self.config.get('display_mode', 'bubble')
         save_history = self.config.get('save_conversation_history', True)
@@ -623,9 +630,20 @@ class SettingsDialog(QDialog):
         self.onVoiceTypeChanged(voice_type)
         
         # Set voice name
-        index = self.voice_selection.findText(voice_name)
-        if index >= 0:
-            self.voice_selection.setCurrentIndex(index)
+        if voice_type == "Azure Voice":
+            # For Azure voices, find the display name that matches the voice ID
+            voices = self.get_available_voices()
+            for display_name, voice_id in voices:
+                if voice_id == voice_name:
+                    index = self.voice_selection.findText(display_name)
+                    if index >= 0:
+                        self.voice_selection.setCurrentIndex(index)
+                    break
+        else:
+            # For Windows voices, just set the name directly
+            index = self.voice_selection.findText(voice_name)
+            if index >= 0:
+                self.voice_selection.setCurrentIndex(index)
 
         # Set AI provider
         provider = self.config.get('ai_provider', 'ollama').capitalize()
