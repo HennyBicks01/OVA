@@ -13,22 +13,40 @@ class AIManager:
         """Initialize AI manager with specified provider"""
         load_dotenv()  # Keep this for any other env vars that might be needed
         
+        # Get default Ollama model if none specified
+        if not model and provider_name == "ollama":
+            try:
+                import subprocess
+                result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    models = [line.split()[0] for line in result.stdout.strip().split('\n')[1:]]
+                    if models:
+                        model = models[0]  # Use first available model
+                    else:
+                        logger.warning("No Ollama models found, attempting to pull llama3.2:1b")
+                        subprocess.run(['ollama', 'pull', 'llama3.2:1b'], capture_output=True)
+                        model = "llama3.2:1b"
+                else:
+                    model = "llama3.2:1b"  # Default if ollama list fails
+            except Exception as e:
+                logger.error(f"Error getting Ollama models: {e}")
+                model = "llama3.2:1b"  # Default if exception occurs
+        
         # Initialize providers
         self.providers = {
-            "ollama": OllamaProvider(model=model if model else "llama2:latest"),
+            "ollama": OllamaProvider(model=model if model else "llama3.2:1b"),
         }
         
         # Add Google provider if API key is provided
         if google_api_key:
             self.providers["google"] = GoogleProvider(api_key=google_api_key, model_name=model if model else "gemini-1.5-flash-8b")
+        elif provider_name == "google":
+            # Create a placeholder for Google provider
+            self.providers["google"] = None
         
         # Set current provider
+        self.provider_name = provider_name
         self.current_provider = self.providers.get(provider_name)
-        if not self.current_provider:
-            if provider_name == "google" and not google_api_key:
-                raise ValueError("Google Gemini API key not provided. Please check your configuration.")
-            logger.warning(f"Provider {provider_name} not found, falling back to ollama")
-            self.current_provider = self.providers["ollama"]
         
         self.conversation_history = []
     
@@ -43,6 +61,10 @@ class AIManager:
     
     def get_response(self, text, system_prompt="", conversation_history=None):
         """Get response from current AI provider"""
+        # Check if trying to use Google without API key
+        if self.provider_name == "google" and not self.current_provider:
+            return "I'm sorry, but you need to add a Google API key in settings or switch to Ollama in order to generate a response."
+            
         try:
             if conversation_history is not None:
                 self.conversation_history = conversation_history
@@ -67,11 +89,8 @@ class AIManager:
             
         except Exception as e:
             logger.error(f"Error getting response from {self.current_provider.__class__.__name__}: {e}")
-            # Try fallback to Ollama if current provider fails
-            if not isinstance(self.current_provider, OllamaProvider):
-                logger.info("Falling back to Ollama provider")
-                self.current_provider = self.providers["ollama"]
-                return self.get_response(text, system_prompt, conversation_history)
+            if isinstance(self.current_provider, GoogleProvider):
+                return "API key not valid. Please check your Google API key in settings."
             return "I'm having trouble thinking right now. Could you please try again?"
     
     def get_conversation_history(self):

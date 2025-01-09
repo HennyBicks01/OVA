@@ -711,15 +711,22 @@ class SettingsDialog(QDialog):
                 if result.returncode == 0:
                     models = [line.split()[0] for line in result.stdout.strip().split('\n')[1:]]
                     self.model_selection.clear()
-                    self.model_selection.addItems(models)
+                    if models:
+                        self.model_selection.addItems(models)
+                    else:
+                        # If no models found, try to pull llama3.2:1b
+                        logger.warning("No Ollama models found, attempting to pull llama3.2:1b")
+                        subprocess.run(['ollama', 'pull', 'llama3.2:1b'], capture_output=True)
+                        self.model_selection.addItem("llama3.2:1b")
                 else:
+                    logger.error("Failed to get Ollama models list")
                     self.model_selection.clear()
-                    self.model_selection.addItem("llama2:latest")  # Default fallback
+                    self.model_selection.addItem("llama3.2:1b")  # Default if ollama list fails
             except Exception as e:
                 logger.error(f"Error getting Ollama models: {e}")
                 self.model_selection.clear()
-                self.model_selection.addItem("llama2:latest")  # Default fallback
-            
+                self.model_selection.addItem("llama3.2:1b")  # Default if exception occurs
+
     def open_google_api_page(self):
         """Open Google AI Studio API key page"""
         url = QUrl("https://aistudio.google.com/app/apikey")
