@@ -2,10 +2,41 @@ from PyQt5.QtWidgets import QLabel, QVBoxLayout, QFrame, QWidget, QSizePolicy, Q
 from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QFontDatabase
 import logging
+import markdown
+import re
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+class MarkdownLabel(QLabel):
+    """A QLabel that supports markdown formatting"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setTextFormat(Qt.RichText)
+        self.setOpenExternalLinks(True)
+        self.setWordWrap(True)
+        
+    def setMarkdown(self, text):
+        """Convert markdown to HTML and set the text"""
+        # Convert markdown to HTML
+        html = markdown.markdown(text, extensions=['fenced_code', 'tables', 'nl2br'])
+        
+        # Add custom styling for code blocks and inline code
+        html = re.sub(
+            r'<code>(.*?)</code>',
+            r'<code style="background-color: #f0f0f0; padding: 2px 4px; border-radius: 3px; font-family: monospace;">\1</code>',
+            html,
+            flags=re.DOTALL
+        )
+        html = re.sub(
+            r'<pre><code>(.*?)</code></pre>',
+            r'<pre style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; font-family: monospace; overflow-x: auto;">\1</pre>',
+            html,
+            flags=re.DOTALL
+        )
+        
+        self.setText(html)
 
 class SpeechBubble(QWidget):
     """A floating speech bubble that appears near the Ova pet"""
@@ -54,7 +85,7 @@ class SpeechBubble(QWidget):
         top_row = QHBoxLayout()
         
         # Create labels for user text and response
-        self.user_label = QLabel()
+        self.user_label = MarkdownLabel()
         self.user_label.setStyleSheet(f"""
             QLabel {{
                 color: #666;
@@ -68,7 +99,6 @@ class SpeechBubble(QWidget):
                 max-height: 25px;
             }}
         """)
-        self.user_label.setWordWrap(True)
         self.user_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.user_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         top_row.addWidget(self.user_label)
@@ -106,7 +136,7 @@ class SpeechBubble(QWidget):
         content_layout.addWidget(self.divider)
         
         # Create response label
-        self.response_label = QLabel()
+        self.response_label = MarkdownLabel()
         self.response_label.setStyleSheet(f"""
             QLabel {{
                 color: #333;
@@ -118,8 +148,11 @@ class SpeechBubble(QWidget):
                 padding: 0;
                 margin: 0;
             }}
+            QLabel pre {{
+                margin: 10px 0;
+                white-space: pre-wrap;
+            }}
         """)
-        self.response_label.setWordWrap(True)
         self.response_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.response_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         content_layout.addWidget(self.response_label)
@@ -138,15 +171,15 @@ class SpeechBubble(QWidget):
         """Set the text of the speech bubble"""
         # Update user text if provided
         if last_text:
-            self.user_label.setText(f"You: {last_text}")
+            self.user_label.setMarkdown(f"You: {last_text}")
             self.user_label.show()
             self.divider.show()
         else:
             self.user_label.hide()
             self.divider.hide()
         
-        # Update response text
-        self.response_label.setText(text)
+        # Update response text with markdown support
+        self.response_label.setMarkdown(text)
         
         # Update size
         hint = self.sizeHint()

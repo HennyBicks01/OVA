@@ -8,3 +8,4 @@ ollama
 edge-tts
 python-dotenv
 kivy==2.2.1
+markdown>=3.3.0
