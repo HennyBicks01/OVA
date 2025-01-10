@@ -189,6 +189,18 @@ class SettingsDialog(QDialog):
         self.model_selection = QComboBox()
         model_layout.addWidget(QLabel("Model:"))
         model_layout.addWidget(self.model_selection)
+        
+        # Add download/uninstall buttons for Ollama models
+        self.download_button = QPushButton("Download")
+        self.download_button.clicked.connect(self.download_model)
+        self.download_button.hide()
+        model_layout.addWidget(self.download_button)
+        
+        self.uninstall_button = QPushButton("Uninstall")
+        self.uninstall_button.clicked.connect(self.uninstall_model)
+        self.uninstall_button.hide()
+        model_layout.addWidget(self.uninstall_button)
+        
         ai_group_layout.addLayout(model_layout)
         
         # Google API Key input (hidden by default)
@@ -703,26 +715,130 @@ class SettingsDialog(QDialog):
         if provider == "google":
             self.model_selection.addItem("gemini-1.5-flash-8b")
             self.model_selection.setEnabled(True)
+            self.download_button.hide()
+            self.uninstall_button.hide()
         else:  # Ollama
             try:
                 import subprocess
+                # First get installed models
                 result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
                 if result.returncode == 0:
-                    # Parse model names from output, skipping header line
-                    models = [line.split()[0] for line in result.stdout.strip().split('\n')[1:]]
-                    if models:
-                        self.model_selection.addItems(models)
-                        self.model_selection.setEnabled(True)
+                    installed_models = [line.split()[0] for line in result.stdout.strip().split('\n')[1:]]
+                else:
+                    installed_models = []
+
+                # Add all available models
+                available_models = ["llama3.2:1b", "llama3.2", "llama3.3", "phi4", "qwq", "mistral", "gemma", "gemma:2b", 
+                "qwen2.5:0.5b", "qwen2.5:1.8b", "qwen2.5", "qwen2.5:7b", "qwen2.5:14b", "qwen2.5:32b", "qwen2.5:72b", "qwen2.5:110b", "qwen2.5:1.7b",]
+                
+                for model in available_models:
+                    # Add "[Installed]" suffix for installed models
+                    if model in installed_models:
+                        self.model_selection.addItem(f"{model} [Installed]")
                     else:
-                        self.model_selection.addItem("No models installed - use 'ollama pull' to download one")
-                        self.model_selection.setEnabled(False)
+                        self.model_selection.addItem(model)
+                
+                if not installed_models:
+                    self.model_selection.setCurrentText(available_models[0])
+                else:
+                    # Select first installed model
+                    for i in range(self.model_selection.count()):
+                        if "[Installed]" in self.model_selection.itemText(i):
+                            self.model_selection.setCurrentIndex(i)
+                            break
+                
+                self.model_selection.setEnabled(True)
+                self.update_action_buttons()
+
             except FileNotFoundError:
                 self.model_selection.addItem("Ollama not installed")
                 self.model_selection.setEnabled(False)
+                self.download_button.hide()
+                self.uninstall_button.hide()
             except Exception as e:
                 logger.error(f"Error getting Ollama models: {e}")
                 self.model_selection.addItem("Error accessing Ollama")
                 self.model_selection.setEnabled(False)
+                self.download_button.hide()
+                self.uninstall_button.hide()
+
+    def update_action_buttons(self):
+        """Update download/uninstall button visibility based on selected model"""
+        current_model = self.model_selection.currentText()
+        if self.ai_provider.currentText().lower() == "ollama":
+            if "[Installed]" in current_model:
+                self.download_button.hide()
+                self.uninstall_button.show()
+            else:
+                self.download_button.show()
+                self.uninstall_button.hide()
+        else:
+            self.download_button.hide()
+            self.uninstall_button.hide()
+
+    def download_model(self):
+        """Download the selected Ollama model"""
+        model = self.model_selection.currentText()
+        
+        try:
+            # Create and show progress dialog
+            from PyQt5.QtWidgets import QProgressDialog
+            progress = QProgressDialog("Downloading model...", "Cancel", 0, 0, self)
+            progress.setWindowTitle("Downloading Model")
+            progress.setWindowModality(Qt.WindowModal)
+            progress.show()
+            
+            # Run ollama pull in a subprocess
+            import subprocess
+            process = subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/c', f'ollama pull {model} && pause'], 
+                                    creationflags=subprocess.CREATE_NEW_CONSOLE)
+            
+            # Close progress dialog
+            progress.close()
+            
+            # Update model list after a short delay
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(1000, self.updateModelSelection)
+            
+        except Exception as e:
+            logger.error(f"Error downloading model: {e}")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Error", f"Could not download model: {str(e)}")
+
+    def uninstall_model(self):
+        """Uninstall the selected Ollama model"""
+        model = self.model_selection.currentText().replace(" [Installed]", "")
+        
+        # Confirm uninstall
+        from PyQt5.QtWidgets import QMessageBox
+        reply = QMessageBox.question(self, "Confirm Uninstall", 
+                                   f"Are you sure you want to uninstall {model}?",
+                                   QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            try:
+                # Create and show progress dialog
+                from PyQt5.QtWidgets import QProgressDialog
+                progress = QProgressDialog("Uninstalling model...", "Cancel", 0, 0, self)
+                progress.setWindowTitle("Uninstalling Model")
+                progress.setWindowModality(Qt.WindowModal)
+                progress.show()
+                
+                # Run ollama rm in a subprocess
+                import subprocess
+                process = subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/c', f'ollama rm {model} && pause'], 
+                                        creationflags=subprocess.CREATE_NEW_CONSOLE)
+                
+                # Close progress dialog
+                progress.close()
+                
+                # Update model list after a short delay
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(1000, self.updateModelSelection)
+                
+            except Exception as e:
+                logger.error(f"Error uninstalling model: {e}")
+                QMessageBox.warning(self, "Error", f"Could not uninstall model: {str(e)}")
 
     def onAIProviderChanged(self, provider):
         """Handle AI provider change"""
@@ -732,11 +848,12 @@ class SettingsDialog(QDialog):
         # Show/hide API key input based on provider
         if provider.lower() == "google":
             self.api_key_widget.show()
-            self.model_selection.setEnabled(True)
         else:
             self.api_key_widget.hide()
-            # Model selection enabled state is handled in updateModelSelection
-
+        
+        # Connect model selection change to update action buttons
+        self.model_selection.currentTextChanged.connect(self.update_action_buttons)
+    
     def open_google_api_page(self):
         """Open Google AI Studio API key page"""
         url = QUrl("https://aistudio.google.com/app/apikey")
@@ -757,7 +874,9 @@ class SettingsDialog(QDialog):
         if 'ai_settings' not in self.config:
             self.config['ai_settings'] = {}
         self.config['ai_settings']['google_api_key'] = self.api_key_input.text()
-        self.config['ai_settings']['model'] = self.model_selection.currentText()
+        # Remove [Installed] suffix when saving model name
+        model_name = self.model_selection.currentText().replace(" [Installed]", "")
+        self.config['ai_settings']['model'] = model_name
         
         # Map display mode text to config value
         mode_map = {'Speech Bubble': 'bubble', 'Chat Window': 'chat', 'No Display': 'none'}
