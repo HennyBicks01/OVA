@@ -695,37 +695,47 @@ class SettingsDialog(QDialog):
             self.voice_selection.addItems([voice.name for voice in voices])
             engine.stop()
             
-    def onAIProviderChanged(self, provider):
-        """Handle AI provider change"""
-        if provider.lower() == 'google':
-            self.api_key_widget.show()
-            # Set Google models
-            self.model_selection.clear()
-            self.model_selection.addItems(["gemini-1.5-flash-8b", "gemini-1.5-flash"])
-        else:
-            self.api_key_widget.hide()
-            # Get Ollama models
+    def updateModelSelection(self):
+        """Update model selection based on provider"""
+        self.model_selection.clear()
+        provider = self.ai_provider.currentText().lower()
+        
+        if provider == "google":
+            self.model_selection.addItem("gemini-1.5-flash-8b")
+            self.model_selection.setEnabled(True)
+        else:  # Ollama
             try:
                 import subprocess
                 result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
                 if result.returncode == 0:
+                    # Parse model names from output, skipping header line
                     models = [line.split()[0] for line in result.stdout.strip().split('\n')[1:]]
-                    self.model_selection.clear()
                     if models:
                         self.model_selection.addItems(models)
+                        self.model_selection.setEnabled(True)
                     else:
-                        # If no models found, try to pull llama3.2:1b
-                        logger.warning("No Ollama models found, attempting to pull llama3.2:1b")
-                        subprocess.run(['ollama', 'pull', 'llama3.2:1b'], capture_output=True)
-                        self.model_selection.addItem("llama3.2:1b")
-                else:
-                    logger.error("Failed to get Ollama models list")
-                    self.model_selection.clear()
-                    self.model_selection.addItem("llama3.2:1b")  # Default if ollama list fails
+                        self.model_selection.addItem("No models installed - use 'ollama pull' to download one")
+                        self.model_selection.setEnabled(False)
+            except FileNotFoundError:
+                self.model_selection.addItem("Ollama not installed")
+                self.model_selection.setEnabled(False)
             except Exception as e:
                 logger.error(f"Error getting Ollama models: {e}")
-                self.model_selection.clear()
-                self.model_selection.addItem("llama3.2:1b")  # Default if exception occurs
+                self.model_selection.addItem("Error accessing Ollama")
+                self.model_selection.setEnabled(False)
+
+    def onAIProviderChanged(self, provider):
+        """Handle AI provider change"""
+        # Update model selection
+        self.updateModelSelection()
+        
+        # Show/hide API key input based on provider
+        if provider.lower() == "google":
+            self.api_key_widget.show()
+            self.model_selection.setEnabled(True)
+        else:
+            self.api_key_widget.hide()
+            # Model selection enabled state is handled in updateModelSelection
 
     def open_google_api_page(self):
         """Open Google AI Studio API key page"""

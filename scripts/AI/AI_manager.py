@@ -13,29 +13,39 @@ class AIManager:
         """Initialize AI manager with specified provider"""
         load_dotenv()  # Keep this for any other env vars that might be needed
         
-        # Get default Ollama model if none specified
-        if not model and provider_name == "ollama":
+        # Initialize providers
+        self.providers = {}
+        self.ollama_status = "unknown"  # Track why Ollama isn't available
+        
+        # Initialize Ollama provider if we can get models
+        if provider_name == "ollama":
             try:
                 import subprocess
                 result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
                 if result.returncode == 0:
                     models = [line.split()[0] for line in result.stdout.strip().split('\n')[1:]]
                     if models:
-                        model = models[0]  # Use first available model
+                        self.providers["ollama"] = OllamaProvider(model=model if model else models[0])
                     else:
-                        logger.warning("No Ollama models found, attempting to pull llama3.2:1b")
-                        subprocess.run(['ollama', 'pull', 'llama3.2:1b'], capture_output=True)
-                        model = "llama3.2:1b"
+                        self.ollama_status = "no_models"
                 else:
-                    model = "llama3.2:1b"  # Default if ollama list fails
+                    self.ollama_status = "error"
+            except FileNotFoundError:
+                self.ollama_status = "not_installed"
             except Exception as e:
-                logger.error(f"Error getting Ollama models: {e}")
-                model = "llama3.2:1b"  # Default if exception occurs
-        
-        # Initialize providers
-        self.providers = {
-            "ollama": OllamaProvider(model=model if model else "llama3.2:1b"),
-        }
+                logger.error(f"Error initializing Ollama: {e}")
+                self.ollama_status = "error"
+        else:
+            # For other providers, still try to init Ollama as fallback
+            try:
+                import subprocess
+                result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    models = [line.split()[0] for line in result.stdout.strip().split('\n')[1:]]
+                    if models:
+                        self.providers["ollama"] = OllamaProvider(model=models[0])
+            except Exception:
+                pass
         
         # Add Google provider if API key is provided
         if google_api_key:
@@ -61,9 +71,17 @@ class AIManager:
     
     def get_response(self, text, system_prompt="", conversation_history=None):
         """Get response from current AI provider"""
-        # Check if trying to use Google without API key
-        if self.provider_name == "google" and not self.current_provider:
-            return "I'm sorry, but you need to add a Google API key in settings or switch to Ollama in order to generate a response."
+        # Check if provider is available
+        if not self.current_provider:
+            if self.provider_name == "google":
+                return "I'm sorry, but you need to add a Google API key in settings or switch to Ollama in order to generate a response."
+            else:  # Ollama
+                if self.ollama_status == "not_installed":
+                    return "I'm sorry, but Ollama is not installed. Please install Ollama to continue."
+                elif self.ollama_status == "no_models":
+                    return "I'm sorry, but no Ollama models are installed. Please use 'ollama pull' to download a model."
+                else:
+                    return "I'm sorry, but there was an error accessing Ollama. Please check if it's running correctly."
             
         try:
             if conversation_history is not None:
