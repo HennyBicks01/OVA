@@ -25,13 +25,17 @@ logger = logging.getLogger(__name__)
 
 def get_resource_path(relative_path):
     """Get the correct resource path whether running as script or frozen exe"""
-    if hasattr(sys, '_MEIPASS'):
+    if getattr(sys, 'frozen', False):
         # Running as PyInstaller bundle
-        base_path = sys._MEIPASS
+        # For config and history, use the executable directory
+        if relative_path in ['config.json', 'history']:
+            return os.path.join(os.path.dirname(sys.executable), relative_path)
+        # For other resources, use the bundled resources directory
+        return os.path.join(sys._MEIPASS, relative_path)
     else:
         # Running as script
         base_path = os.path.dirname(os.path.dirname(__file__))
-    return os.path.join(base_path, relative_path)
+        return os.path.join(base_path, relative_path)
 
 class ChatBubble:
     def __init__(self, parent=None):
@@ -786,10 +790,12 @@ class OwlPet(QWidget):
             # Update voice assistant with new config
             if hasattr(self, 'voice_assistant') and self.voice_assistant:
                 self.voice_assistant.reload_config()
-                
+                logger.info("Voice assistant config reloaded")
+            
             # Reschedule random actions with new settings
             self.schedule_next_random_action()
-    
+            logger.info("Settings update complete")
+
     def load_config(self):
         """Load configuration from config.json"""
         config_path = get_resource_path('config.json')
@@ -798,17 +804,26 @@ class OwlPet(QWidget):
             'voice_name': 'en-US-AnaNeural',
             'sleep_timer': 30,
             'personality_preset': 'ova',
-            'display_mode': 'bubble'
+            'display_mode': 'bubble',
+            'ai_provider': 'ollama',
+            'ai_settings': {
+                'model': 'ova',
+                'google_api_key': ''
+            },
+            'save_conversation_history': True
         }
         
         try:
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
-                    return json.load(f)
+                    loaded_config = json.load(f)
+                    logger.info(f"Loaded config from {config_path}")
+                    return {**default_config, **loaded_config}  # Merge with defaults
         except Exception as e:
-            print(f"Error loading config: {e}")
+            logger.error(f"Error loading config: {e}")
         
-        return default_config
+        logger.info("Using default config")
+        return default_config.copy()
 
     def check_idle(self):
         """Check if Ova has been idle for too long"""

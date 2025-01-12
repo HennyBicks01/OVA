@@ -5,6 +5,7 @@ from PyQt5.QtCore import Qt
 import json
 import os
 import logging
+import sys
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtCore import QUrl
 
@@ -22,9 +23,44 @@ class SettingsDialog(QDialog):
         self.current_conversation = None
         self.initUI()
         
+    def get_app_root(self):
+        """Get the application root directory, handling both normal and frozen environments"""
+        if getattr(sys, 'frozen', False):
+            # Running in PyInstaller bundle
+            return os.path.dirname(sys.executable)
+        else:
+            # Running in normal Python environment
+            return os.path.dirname(os.path.dirname(__file__))
+
     def load_config(self):
         """Load configuration from config.json"""
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+        try:
+            config_path = os.path.join(self.get_app_root(), 'config.json')
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    loaded_config = json.load(f)
+                    logger.info(f"Loaded config from {config_path}: {loaded_config}")
+                    return loaded_config
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
+        
+        # Return default config if loading fails
+        logger.info("Using default config")
+        return self.create_default_config()
+
+    def save_config(self):
+        """Save configuration to config.json"""
+        try:
+            config_path = os.path.join(self.get_app_root(), 'config.json')
+            logger.info(f"Saving config to {config_path}: {self.config}")
+            with open(config_path, 'w') as f:
+                json.dump(self.config, f, indent=4)
+            logger.info("Config saved successfully")
+        except Exception as e:
+            logger.error(f"Error saving config: {e}")
+    
+    def create_default_config(self):
+        """Create default configuration"""
         default_config = {
             'voice_type': 'Azure Voice',
             'voice_name': 'en-US-AnaNeural',
@@ -47,33 +83,15 @@ class SettingsDialog(QDialog):
                 'google_api_key': ''  # Store API key if using Google
             }
         }
-        
-        try:
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    loaded_config = json.load(f)
-                    logger.info(f"Loaded config: {loaded_config}")
-                    return loaded_config
-        except Exception as e:
-            logger.error(f"Error loading config: {e}")
-        
-        logger.info("Using default config")
         return default_config.copy()
-    
-    def save_config(self):
-        """Save configuration to config.json"""
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
-        try:
-            logger.info(f"Saving config: {self.config}")
-            with open(config_path, 'w') as f:
-                json.dump(self.config, f)
-            logger.info("Config saved successfully")
-        except Exception as e:
-            logger.error(f"Error saving config: {e}")
     
     def get_available_presets(self):
         """Get list of available preset files"""
-        presets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'presets')
+        if getattr(sys, 'frozen', False):
+            presets_dir = os.path.join(sys._MEIPASS, 'assets', 'presets')
+        else:
+            presets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'presets')
+        
         presets = []
         if os.path.exists(presets_dir):
             for file in os.listdir(presets_dir):
@@ -447,7 +465,7 @@ class SettingsDialog(QDialog):
     def load_conversations(self):
         """Load conversations into the table"""
         self.convo_table.setRowCount(0)
-        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        history_dir = os.path.join(self.get_app_root(), 'history')
         
         if not os.path.exists(history_dir):
             os.makedirs(history_dir)
@@ -536,7 +554,7 @@ class SettingsDialog(QDialog):
 
     def delete_conversation(self, file_name):
         """Delete a conversation file"""
-        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        history_dir = os.path.join(self.get_app_root(), 'history')
         file_path = os.path.join(history_dir, file_name)
         
         try:
@@ -567,7 +585,7 @@ class SettingsDialog(QDialog):
 
     def new_conversation(self):
         """Start a new conversation"""
-        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        history_dir = os.path.join(self.get_app_root(), 'history')
         if not os.path.exists(history_dir):
             os.makedirs(history_dir)
             
@@ -592,7 +610,7 @@ class SettingsDialog(QDialog):
 
     def clear_all_conversations(self):
         """Clear all conversation files"""
-        history_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'history')
+        history_dir = os.path.join(self.get_app_root(), 'history')
         
         try:
             # Ask for confirmation
@@ -884,25 +902,12 @@ class SettingsDialog(QDialog):
         
         # Save history settings
         self.config['save_conversation_history'] = (self.save_history.currentText() == "Save History")
-        self.config['max_conversation_pairs'] = self.history_length.value()
-        
-        # Add random action settings
-        self.config['enable_random_actions'] = self.enable_random.isChecked()
-        self.config['min_action_interval'] = self.min_interval.value()
-        self.config['max_action_interval'] = self.max_interval.value()
-        self.config['enabled_actions'] = {
-            action: checkbox.isChecked()
-            for action, checkbox in self.action_checkboxes.items()
-        }
-        
-        # Save current conversation if one is selected
-        if self.current_conversation:
-            self.config['current_conversation'] = self.current_conversation
         
         # Save config
         self.save_config()
         
-        # Call parent accept to close dialog
+        # Signal that config has been updated
+        logger.info("Config saved, accepting dialog")
         super().accept()
     
     def getSelectedVoice(self):

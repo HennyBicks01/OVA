@@ -19,13 +19,17 @@ load_dotenv()
 
 def get_resource_path(relative_path):
     """Get the correct resource path whether running as script or frozen exe"""
-    if hasattr(sys, '_MEIPASS'):
+    if getattr(sys, 'frozen', False):
         # Running as PyInstaller bundle
-        base_path = sys._MEIPASS
+        # For config and history, use the executable directory
+        if relative_path in ['config.json', 'history']:
+            return os.path.join(os.path.dirname(sys.executable), relative_path)
+        # For other resources, use the bundled resources directory
+        return os.path.join(sys._MEIPASS, relative_path)
     else:
         # Running as script
         base_path = os.path.dirname(os.path.dirname(__file__))
-    return os.path.join(base_path, relative_path)
+        return os.path.join(base_path, relative_path)
 
 class VoiceAssistant:
     def __init__(self, config=None, callback=None):
@@ -180,15 +184,20 @@ class VoiceAssistant:
             logger.error(f"Error saving conversation history: {e}")
 
     def reload_config(self):
-        """Reload configuration"""
+        """Reload configuration and update components"""
+        logger.info("Reloading voice assistant config")
         self.config = self.load_config()
-        logger.info(f"Reloaded voice assistant config: {self.config}")
         
         # Reinitialize AI manager with new config
+        provider_name = self.config.get('ai_provider', 'ollama')
+        google_api_key = self.config.get('ai_settings', {}).get('google_api_key')
+        model = self.config.get('ai_settings', {}).get('model')
+        
+        logger.info(f"Reinitializing AI manager with provider: {provider_name}, model: {model}")
         self.ai_manager = AIManager(
-            provider_name=self.config.get('ai_provider', 'ollama'),
-            google_api_key=self.config.get('ai_settings', {}).get('google_api_key'),
-            model=self.config.get('ai_settings', {}).get('model')
+            provider_name=provider_name,
+            google_api_key=google_api_key,
+            model=model
         )
         
         # Reload conversation history

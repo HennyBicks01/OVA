@@ -35,6 +35,16 @@ def create_default_config():
 def create_spec_content(script_path, current_dir, icon_path, console=False):
     """Create PyInstaller spec file content"""
     exe_name = 'OVA-debug' if console else 'OVA'
+    
+    # Define default config outside of f-string to avoid formatting issues
+    default_config = {
+        'voice_type': 'Azure Voice',
+        'voice_name': 'en-US-AnaNeural',
+        'sleep_timer': 30,
+        'personality_preset': 'ova',
+        'display_mode': 'bubble'
+    }
+    
     return f'''
 # -*- mode: python ; coding: utf-8 -*-
 
@@ -43,6 +53,7 @@ block_cipher = None
 assets_dir = os.path.join(r'{current_dir}', 'assets')
 presets_dir = os.path.join(r'{current_dir}', 'assets', 'presets')
 history_dir = os.path.join(r'{current_dir}', 'history')
+config_file = os.path.join(r'{current_dir}', 'config.json')
 
 # Collect all asset files
 asset_datas = []
@@ -51,6 +62,15 @@ for root, dirs, files in os.walk(assets_dir):
         src = os.path.join(root, file)
         dst = os.path.relpath(root, r'{current_dir}')
         asset_datas.append((src, dst))
+
+# Create empty history directory if it doesn't exist
+if not os.path.exists(history_dir):
+    os.makedirs(history_dir)
+
+# Create default config if it doesn't exist
+if not os.path.exists(config_file):
+    with open(config_file, 'w') as f:
+        json.dump({default_config}, f, indent=4)
 
 a = Analysis(
     [r'{script_path}'],
@@ -164,11 +184,6 @@ def build():
             
             # Clean up spec file
             os.remove(spec_path)
-        
-        # Copy config to dist directory
-        config_src = os.path.join(current_dir, 'config.json')
-        config_dst = os.path.join(current_dir, 'dist', 'config.json')
-        shutil.copy2(config_src, config_dst)
         
         # Create history directory in dist
         history_dir = os.path.join(current_dir, 'dist', 'history')
